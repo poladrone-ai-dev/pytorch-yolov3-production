@@ -449,6 +449,10 @@ if __name__ == "__main__":
         with open(os.path.join(output_path, 'detection.json')) as json_file:
             input_json = json.load(json_file)
 
+        image_before_filter = cv2.imread(opt.image)
+        draw_bounding_boxes(input_json, image_before_filter)
+        cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
+
         input_json = filter_bounding_boxes(input_json)
         with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
             json.dump(input_json, img_json, indent=4)
@@ -459,4 +463,4 @@ if __name__ == "__main__":
 
         image_circles = cv2.imread(opt.image)
         draw_circles(input_json, image)
-        cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image)
+        cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
