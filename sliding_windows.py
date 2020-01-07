@@ -146,33 +146,36 @@ def calculate_box_offset(output_json, window, box, window_dim, image_dim):
     output_json[box]["y_offset"] = coords[0] * opt.y_stride
     print("calculate y_offset: " + str(coords[0] * opt.y_stride))
 
-def draw_bounding_boxes(output_json, image, window_dim):
+def draw_bounding_boxes(output_json, image):
     image_height, image_width, channel = image.shape
     for box in output_json:
         x1 = output_json[box]["x1"]
         y1 = output_json[box]["y1"]
         x2 = output_json[box]["x2"]
         y2 = output_json[box]["y2"]
+        # cls_pred = output_json[box]["cls_pred"]
+
+        # if x1 < torch.tensor(1):
+        #     x1 = torch.tensor(1)
+        #
+        # if y1 < torch.tensor(1):
+        #     y1 = torch.tensor(1)
+        #
+        # if x2 > torch.tensor(image_width - 1):
+        #     x2 = torch.tensor(image_width - 1)
+        #
+        # if y2 > torch.tensor(image_height - 1):
+        #     y2 = torch.tensor(image_height - 1)
+
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(image, box, (int(x1), int(y1)), \
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 5, lineType=cv2.LINE_AA)
+
+def draw_circles(output_json, image):
+    for box in output_json:
         center_x = output_json[box]["center_x"]
         center_y = output_json[box]["center_y"]
-        cls_pred = output_json[box]["cls_pred"]
-
-        if x1 < torch.tensor(1):
-            x1 = torch.tensor(1)
-
-        if y1 < torch.tensor(1):
-            y1 = torch.tensor(1)
-
-        if x2 > torch.tensor(image_width - 1):
-            x2 = torch.tensor(image_width - 1)
-
-        if y2 > torch.tensor(image_height - 1):
-            y2 = torch.tensor(image_height - 1)
-
-        # cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
         cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
-        # cv2.putText(image, box, (int(x1), int(y1)), \
-        #             cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 5, lineType=cv2.LINE_AA)
 
 def sliding_windows(window_dim):
     image = cv2.imread(opt.image)
@@ -211,17 +214,17 @@ def sliding_windows(window_dim):
             detections = rescale_boxes(detections, opt.img_size, window.shape[:2])
 
             for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                if x1 < torch.tensor(1):
-                    x1 = torch.tensor(1)
-
-                if y1 < torch.tensor(1):
-                    y1 = torch.tensor(1)
-
-                if x2 > torch.tensor(image_width - 1):
-                    x2 = torch.tensor(image_width - 1)
-
-                if y2 > torch.tensor(image_height - 1):
-                    y2 = torch.tensor(image_height - 1)
+                # if x1 < torch.tensor(1):
+                #     x1 = torch.tensor(1)
+                #
+                # if y1 < torch.tensor(1):
+                #     y1 = torch.tensor(1)
+                #
+                # if x2 > torch.tensor(image_width - 1):
+                #     x2 = torch.tensor(image_width - 1)
+                #
+                # if y2 > torch.tensor(image_height - 1):
+                #     y2 = torch.tensor(image_height - 1)
 
                 if classes[int(cls_pred)] != "palm0":
                     box_name = "box" + str(box_idx)
@@ -451,6 +454,9 @@ if __name__ == "__main__":
             json.dump(input_json, img_json, indent=4)
 
         image = cv2.imread(opt.image)
-        draw_bounding_boxes(input_json, image, [winW, winH])
+        draw_bounding_boxes(input_json, image)
+        cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
 
-        cv2.imwrite(os.path.join(output_path, "output.jpeg"), image)
+        image_circles = cv2.imread(opt.image)
+        draw_circles(input_json, image)
+        cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image)
