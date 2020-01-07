@@ -462,5 +462,5 @@ if __name__ == "__main__":
         cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
 
         image_circles = cv2.imread(opt.image)
-        draw_circles(input_json, image)
+        draw_circles(input_json, image_circles)
         cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
