@@ -404,10 +404,6 @@ if __name__ == "__main__":
 
     opt = parser.parse_args()
 
-    if os.path.isdir(opt.output):
-        shutil.rmtree(opt.output)
-    os.mkdir(opt.output)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
 
@@ -444,6 +440,11 @@ if __name__ == "__main__":
         global_var.max_y = (image_height / opt.y_stride) - 1
 
         sliding_windows([winW, winH])
+
+        if os.path.isdir(opt.output):
+            shutil.rmtree(opt.output)
+        os.mkdir(opt.output)
+
         output_path = opt.output
 
         with open(os.path.join(output_path, 'detection.json')) as json_file:
