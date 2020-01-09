@@ -1,3 +1,4 @@
+
 from __future__ import division
 
 from models import *
@@ -153,7 +154,7 @@ def draw_bounding_boxes(output_json, image):
         y1 = output_json[box]["y1"]
         x2 = output_json[box]["x2"]
         y2 = output_json[box]["y2"]
-        # cls_pred = output_json[box]["cls_pred"]
+        cls_pred = output_json[box]["cls_pred"]
 
         # if x1 < torch.tensor(1):
         #     x1 = torch.tensor(1)
@@ -168,7 +169,7 @@ def draw_bounding_boxes(output_json, image):
         #     y2 = torch.tensor(image_height - 1)
 
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-        cv2.putText(image, box, (int(x1), int(y1)), \
+        cv2.putText(image, cls_pred, (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 5, lineType=cv2.LINE_AA)
 
 def draw_circles(output_json, image):
