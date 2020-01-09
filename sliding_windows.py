@@ -393,6 +393,7 @@ if __name__ == "__main__":
     parser.add_argument("--class_path", type=str, required=True, help="path to class label file")
     parser.add_argument("--image", type=str, required=True, help="the image to apply sliding windows on")
     parser.add_argument("--output", type=str, required=True, help="path to the detections output")
+    parser.add_argument("--window_size", type=int, required=True, help="size of the sliding window")
 
     parser.add_argument("--conf_thres", type=float, default=0.8, help="object confidence threshold")
     parser.add_argument("--nms_thres", type=float, default=0.4, help="iou threshold for non-maximum suppression")
@@ -436,7 +437,7 @@ if __name__ == "__main__":
         global_var.y_offset = -winH
 
     else:
-        [winW, winH] = [500, 500]
+        [winW, winH] = [opt.window_size, opt.window_size]
         opt.x_stride = int(winW / 2)
         opt.y_stride = int(winH / 2)
 
