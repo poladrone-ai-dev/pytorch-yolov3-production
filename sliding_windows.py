@@ -1,4 +1,3 @@
-
 from __future__ import division
 
 from models import *
@@ -12,6 +11,7 @@ from torchvision import datasets
 from torch.autograd import Variable
 from matplotlib.ticker import NullLocator
 from pyimagesearch.helpers import sliding_window
+from pyimagesearch.helpers import pyramid
 import pyimagesearch.global_var as global_var
 
 import os
@@ -49,20 +49,15 @@ def calculate_iou(boxA, boxB):
     iou = interArea / float(boxAArea + boxBArea - interArea)
 
     # return the intersection over union value
-    return iou
+    return iou, interArea, boxAArea, boxBArea
 
-def detect_inner_box(boxA, boxB):
-    if boxB["x1"] >= boxA["x1"] and boxB["x2"] <= boxA["x2"] and boxB["y1"] >= boxA["y1"] and boxB["y2"] <= boxA["y2"]:
-        return boxB
-    elif boxA["x1"] >= boxB["x1"] and boxA["x2"] <= boxB["x2"] and boxA["y1"] >= boxB["y1"] and boxA["y2"] <= boxB["y2"]:
-        return boxA
-    else:
-        return None
+def detect_image_tensorflow(window, model):
+    pass
 
 def detect_image(window, model):
     img_size = 416 # don't change this, because the model is trained on 416 x 416 images
-    conf_thres = 0.8
-    nms_thres = 0.4
+    conf_thres = opt.conf_thres
+    nms_thres = opt.nms_thres
 
     # scale and pad image
     ratio = min(img_size/window.shape[0], img_size/window.shape[1])
@@ -86,41 +81,51 @@ def detect_image(window, model):
 
     return detections[0]
 
-def filter_bounding_boxes(output_json):
+def filter_bounding_boxes(output_json, iou_thres):
     filtered_json = copy.deepcopy(output_json)
-    num_boxes = len(filtered_json.keys())
+    num_boxes = len(filtered_json)
     print("Number of boxes before filtering: " + str(num_boxes))
-    filter_table = [[None for i in range(num_boxes)] for j in range(num_boxes)]
-    box_names = []
     deleted_boxes = []
-
-    for box in filtered_json:
-        box_names.append(box)
-
-    for col_header in range(1, num_boxes):
-        filter_table[0][col_header] = box_names[col_header - 1]
-
-    for row_header in range(1, num_boxes):
-        filter_table[row_header][0] = box_names[row_header - 1]
 
     for boxA in filtered_json:
         for boxB in filtered_json:
             if boxA != boxB:
-                iou = calculate_iou(output_json[boxA], output_json[boxB])
-                if iou > 0.5:
+                iou, interArea, boxAArea, boxBArea = calculate_iou(output_json[boxA], output_json[boxB])
+
+                if iou > iou_thres:
                     if output_json[boxA]["conf"] < output_json[boxB]["conf"]:
-                        if boxA in output_json and boxA not in deleted_boxes:
+                        if boxA not in deleted_boxes:
                             deleted_boxes.append(boxA)
-                    elif boxB in output_json and output_json[boxB]["conf"] < output_json[boxA]["conf"]:
+
+                    # if interArea / boxAArea > interArea / boxBArea:
+                    #     if boxA not in deleted_boxes:
+                    #         deleted_boxes.append(boxA)
+
+                    # elif boxAArea < boxBArea:
+                    #     if boxA not in deleted_boxes:
+                    #         deleted_boxes.append(boxA)
+
+                    # if interArea / output_json[boxA]["width"] * output_json[boxA]["height"] < \
+                    #     interArea / output_json[boxB]["width"] * output_json[boxB]["height"]:
+                    #     if boxA not in deleted_boxes:
+                    #         deleted_boxes.append(boxA)
+
+                    if output_json[boxB]["conf"] < output_json[boxA]["conf"]:
                         if boxB not in deleted_boxes:
                             deleted_boxes.append(boxB)
-                else:
-                    boxA_idx = int(boxA[3:])
-                    boxB_idx = int(boxB[3:])
-                    if output_json[boxA]["cls_conf"] > output_json[boxB]["cls_conf"]:
-                        filter_table[boxA_idx][boxB_idx] = {output_json[boxA]["cls_pred"]: output_json[boxA]["cls_conf"]}
-                    else:
-                        filter_table[boxA_idx][boxB_idx] = {output_json[boxB]["cls_pred"]: output_json[boxB]["cls_conf"]}
+
+                    # if interArea / boxBArea > interArea / boxAArea:
+                    #     if boxB not in deleted_boxes:
+                    #         deleted_boxes.append(boxB)
+
+                    # elif boxBArea < boxAArea:
+                    #     if boxB not in deleted_boxes:
+                    #         deleted_boxes.append(boxB)
+
+                    # if interArea / output_json[boxB]["width"] * output_json[boxB]["height"] < \
+                    #     interArea / output_json[boxA]["width"] * output_json[boxA]["height"]:
+                    #     if boxB not in deleted_boxes:
+                    #         deleted_boxes.append(boxB)
 
     print("Deleted boxes: " + str(deleted_boxes))
     print("Number of deleted boxes: " + str(len(deleted_boxes)))
@@ -133,50 +138,36 @@ def filter_bounding_boxes(output_json):
     print("Number of boxes after filtering: " + str(len(output_json.keys())))
     return output_json
 
-def calculate_box_offset(output_json, window, box, window_dim, image_dim):
+def calculate_box_offset(output_json, window, box):
     coords = get_tile_coordinates(window)
     output_json[box]["x1"] += coords[1] * opt.x_stride
     output_json[box]["x2"] += coords[1] * opt.x_stride
     output_json[box]["center_x"] += coords[1] * opt.x_stride
     output_json[box]["x_offset"] = coords[1] * opt.x_stride
-    print("calculate x_offset: " + str(coords[1] * opt.x_stride))
 
     output_json[box]["y1"] += coords[0] * opt.y_stride
     output_json[box]["y2"] += coords[0] * opt.y_stride
     output_json[box]["center_y"] += coords[0] * opt.y_stride
     output_json[box]["y_offset"] = coords[0] * opt.y_stride
-    print("calculate y_offset: " + str(coords[0] * opt.y_stride))
 
 def draw_bounding_boxes(output_json, image):
-    image_height, image_width, channel = image.shape
     for box in output_json:
         x1 = output_json[box]["x1"]
         y1 = output_json[box]["y1"]
         x2 = output_json[box]["x2"]
         y2 = output_json[box]["y2"]
         cls_pred = output_json[box]["cls_pred"]
+        conf = output_json[box]["conf"]
 
-        # if x1 < torch.tensor(1):
-        #     x1 = torch.tensor(1)
-        #
-        # if y1 < torch.tensor(1):
-        #     y1 = torch.tensor(1)
-        #
-        # if x2 > torch.tensor(image_width - 1):
-        #     x2 = torch.tensor(image_width - 1)
-        #
-        # if y2 > torch.tensor(image_height - 1):
-        #     y2 = torch.tensor(image_height - 1)
-
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-        cv2.putText(image, cls_pred, (int(x1), int(y1)), \
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 5, lineType=cv2.LINE_AA)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
 def draw_circles(output_json, image):
     for box in output_json:
         center_x = output_json[box]["center_x"]
         center_y = output_json[box]["center_y"]
-        cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
+        cv2.circle(image, (center_x, center_y), 10, (255, 0, 0), 5)
 
 def sliding_windows(window_dim):
     image = cv2.imread(opt.image)
@@ -186,15 +177,14 @@ def sliding_windows(window_dim):
     box_idx = 0
     output_json = {}
     [winW, winH] = window_dim
-    image_height, image_width, channel = image.shape
 
     if os.path.exists(os.path.join(output_path, "detections.txt")):
         os.remove(os.path.join(output_path, "detections.txt"))
 
     fp = open(os.path.join(output_path, "detections.txt"), "a")
 
-    for (x, y, window) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride,
-                                         windowSize=[winW, winH]):
+    #for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
+    for (x, y, window) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride, windowSize=[winW, winH]):
 
         window_name = "window_" + str(global_var.x_coord) + "_" + str(global_var.y_coord)
         window_image = Image.fromarray(window)
@@ -206,7 +196,17 @@ def sliding_windows(window_dim):
         window_image.save(os.path.join(opt.output, "sliding_windows", window_name + ".jpg"))
 
         print("Performing detection on " + window_name + ".")
-        detections = detect_image(window, model)
+
+        if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
+            detections = detect_image(window, model)
+
+        if GetWeightsType() == "tensorflow":
+            detections = detect_image_tensorflow(window, graph_def)
+
+        if GetWeightsType() == None:
+            print("Error: No valid weights found.")
+            print("Please supply a valid trained weights for detection.")
+            sys.exit()
 
         if window_width != winW or window_height != winH:
             print("Non-square detection window detected. Window dimension: (" + str(window_width) + ", " + str(window_height) + ")")
@@ -215,51 +215,42 @@ def sliding_windows(window_dim):
             detections = rescale_boxes(detections, opt.img_size, window.shape[:2])
 
             for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                # if x1 < torch.tensor(1):
-                #     x1 = torch.tensor(1)
-                #
-                # if y1 < torch.tensor(1):
-                #     y1 = torch.tensor(1)
-                #
-                # if x2 > torch.tensor(image_width - 1):
-                #     x2 = torch.tensor(image_width - 1)
-                #
-                # if y2 > torch.tensor(image_height - 1):
-                #     y2 = torch.tensor(image_height - 1)
+                box_name = "box" + str(box_idx)
+                box_w = x2 - x1
+                box_h = y2 - y1
+                center_x = ((x1.item() + x2.item()) / 2)
+                center_y = ((y1.item() + y2.item()) / 2)
 
-                if classes[int(cls_pred)] != "palm0":
-                    box_name = "box" + str(box_idx)
-                    box_w = x2 - x1
-                    box_h = y2 - y1
-                    center_x = ((x1.item() + x2.item()) / 2)
-                    center_y = ((y1.item() + y2.item()) / 2)
+                if box_name not in output_json:
+                    output_json[box_name] = \
+                        {
+                            "x1": round(x1.item()),
+                            "y1": round(y1.item()),
+                            "x2": round(x2.item()),
+                            "y2": round(y2.item()),
+                            "x1_og": round(x1.item()),
+                            "y1_og": round(y1.item()),
+                            "x2_og": round(x2.item()),
+                            "y2_og": round(y2.item()),
+                            "width": round(box_w.item()),
+                            "height": round(box_h.item()),
+                            "center_x": round(center_x),
+                            "center_y": round(center_y),
+                            "window_width": window_width,
+                            "window_height": window_height,
+                            "x_offset": global_var.x_offset,
+                            "y_offset": global_var.y_offset,
+                            "scaling": 1,
+                            "conf": round(conf.item(), 3),
+                            "cls_conf": round(cls_conf.data.tolist(), 3),
+                            "cls_pred": classes[int(cls_pred)]
+                        }
 
-                    if box_name not in output_json:
-                        output_json[box_name] = \
-                            {
-                                "x1": round(x1.item()),
-                                "y1": round(y1.item()),
-                                "x2": round(x2.item()),
-                                "y2": round(y2.item()),
-                                "x1_og": round(x1.item()),
-                                "y1_og": round(y1.item()),
-                                "x2_og": round(x2.item()),
-                                "y2_og": round(y2.item()),
-                                "width": round(box_w.item()),
-                                "height": round(box_h.item()),
-                                "center_x": round(center_x),
-                                "center_y": round(center_y),
-                                "window_width": window_width,
-                                "window_height": window_height,
-                                "x_offset": global_var.x_offset,
-                                "y_offset": global_var.y_offset,
-                                "scaling": 1,
-                                "conf": round(conf.item(), 3),
-                                "cls_conf": round(cls_conf.data.tolist(), 3),
-                                "cls_pred": classes[int(cls_pred)]
-                            }
-                    calculate_box_offset(output_json, window_name, box_name, [window_width, window_height], [image_width, image_height])
-                    box_idx += 1
+                fp.write(classes[int(cls_pred)] + " " + str(round(cls_conf.data.tolist(), 3)) + " " + str(round(x1.item()))
+                         + " " + str(round(y1.item())) + " " + str(round(x2.item())) + " " + str(round(y2.item())) + "\n")
+
+                calculate_box_offset(output_json, window_name, box_name)
+                box_idx += 1
 
         # cv2.rectangle(image, (x, y), (x + winW, y + winH), (0, 255, 0), 2)
         cv2.imshow("Window", image)
@@ -274,11 +265,14 @@ def sliding_windows(window_dim):
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
         json.dump(output_json, img_json, indent=4)
 
+box_idx = 0
+
 def dataloader(window_dim):
     output_json = {}
     [winW, winH] = window_dim
     window_idx = 0
     output_path = opt.output
+    global box_idx
 
     image_path = os.path.dirname(opt.image)
     dataloader = DataLoader(
@@ -299,7 +293,7 @@ def dataloader(window_dim):
     for batch_i, (img_paths, input_imgs) in enumerate(dataloader):
         if os.path.basename(opt.image) == os.path.basename(img_paths[0]):
             input_imgs = Variable(input_imgs.type(Tensor))
-            # Get detections
+
             with torch.no_grad():
                 detections = model(input_imgs)
                 detections = non_max_suppression(detections, 0.8, 0.4)
@@ -324,7 +318,7 @@ def dataloader(window_dim):
             unique_labels = detections[:, -1].cpu().unique()
             n_cls_preds = len(unique_labels)
             bbox_colors = random.sample(colors, n_cls_preds)
-            box_idx = 0
+            # box_idx = 0
             for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
                 if classes[int(cls_pred)] != "palm0":
                     # if True:
@@ -383,12 +377,25 @@ def dataloader(window_dim):
                              + str(int(box_w.item())) + " " + str(int(box_h.item())) + '\n')
 
     fp.close()
-    with open(os.path.join(output_path, "detection.json"), "w") as img_json:
+
+    with open(os.path.join(output_path, "detection.json"), "a") as img_json:
         json.dump(output_json, img_json, indent=4)
+
+def GetWeightsType():
+    if opt.weights_path.endswith(".weights"):
+        return "yolo"
+    if opt.weights_path.endswith(".pth"):
+        return "pytorch"
+    if opt.weights_path.endswith(".pb"):
+        return "tensorflow"
+    if opt.weights_path.endswith("h5"):
+        return "keras"
+
+    return None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_def", type=str, required=True, help="path to model definition file")
+    parser.add_argument("--model_def", type=str, help="path to model definition file")
     parser.add_argument("--weights_path", type=str, required=True, help="path to trained weights")
     parser.add_argument("--class_path", type=str, required=True, help="path to class label file")
     parser.add_argument("--image", type=str, required=True, help="the image to apply sliding windows on")
@@ -409,60 +416,96 @@ if __name__ == "__main__":
         shutil.rmtree(opt.output)
     os.mkdir(opt.output)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
+    if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
 
-    if opt.weights_path.endswith(".weights"):
-        # Load darknet weights
-        print("Loaded the full weights with network architecture.")
-        model.load_darknet_weights(opt.weights_path)
+        if opt.weights_path.endswith(".weights"):
+            # Load darknet weights
+            print("Loaded the full weights with network architecture.")
+            model.load_darknet_weights(opt.weights_path)
+        else:
+            # Load checkpoint weights
+            print("Loaded only the trained weights.")
+            model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
+
+        print("Weights: " + os.path.basename(opt.weights_path) + ".")
+        print("Config: " + os.path.basename(opt.model_def) + ".")
+
+        model.eval() # Set in evaluation mode
+
+        classes = load_classes(opt.class_path)  # Extracts class labels from file
+        Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+        im = Image.open(opt.image)
+        image_width, image_height = im.size
+
+        if image_width <= 500 and image_height <= 500:
+            [winW, winH] = [230, 230]
+            opt.x_stride = int(winW / 2)
+            opt.y_stride = int(winH / 2)
+            dataloader([winW, winH])
+            global_var.x_offset = -winW
+            global_var.y_offset = -winH
+
+        else:
+            [winW, winH] = [opt.window_size, opt.window_size]
+            opt.x_stride = int(winW / 2)
+            opt.y_stride = int(winH / 2)
+
+            global_var.max_x = (image_width / opt.x_stride) - 1
+            global_var.max_y = (image_height / opt.y_stride) - 1
+
+            print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
+            sliding_windows([winW, winH])
+
+            output_path = opt.output
+
+            with open(os.path.join(output_path, 'detection.json')) as json_file:
+                input_json = json.load(json_file)
+
+            image_before_filter = cv2.imread(opt.image)
+            draw_bounding_boxes(input_json, image_before_filter)
+            cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
+
+            iou_thres_range = [0.5, 0.4, 0.3, 0.2, 0.1]
+
+            for iou_thres in iou_thres_range:
+                input_json = filter_bounding_boxes(input_json, iou_thres)
+
+            with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
+                json.dump(input_json, img_json, indent=4)
+
+            image = cv2.imread(opt.image)
+            draw_bounding_boxes(input_json, image)
+            cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
+
+            image_circles = cv2.imread(opt.image)
+            draw_circles(input_json, image_circles)
+            cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
+
+    elif GetWeightsType() == "tensorflow":
+        with tf.gfile.FastGFile(opt.model_def, 'rb') as f:
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+
+        with tf.Session() as sess:
+            sess.graph.as_default()
+            tf.import_graph_def(graph_def, name='')
+
+            print("Loaded tensorflow weights: " + os.path.basename(opt.weights_path) + ".")
+
+            [winW, winH] = [opt.window_size, opt.window_size]
+            opt.x_stride = int(winW / 2)
+            opt.y_stride = int(winH / 2)
+
+            global_var.max_x = (image_width / opt.x_stride) - 1
+            global_var.max_y = (image_height / opt.y_stride) - 1
+
+            print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
+
+            sliding_windows([winW, winH])
+            output_path = opt.output
+
     else:
-        # Load checkpoint weights
-        print("Loaded only the trained weights.")
-        model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
-
-    model.eval() # Set in evaluation mode
-
-    classes = load_classes(opt.class_path)  # Extracts class labels from file
-    Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    im = Image.open(opt.image)
-    image_width, image_height = im.size
-
-    if image_width <= 500 and image_height <= 500:
-        [winW, winH] = [230, 230]
-        opt.x_stride = int(winW / 2)
-        opt.y_stride = int(winH / 2)
-        dataloader([winW, winH])
-        global_var.x_offset = -winW
-        global_var.y_offset = -winH
-
-    else:
-        [winW, winH] = [opt.window_size, opt.window_size]
-        opt.x_stride = int(winW / 2)
-        opt.y_stride = int(winH / 2)
-
-        global_var.max_x = (image_width / opt.x_stride) - 1
-        global_var.max_y = (image_height / opt.y_stride) - 1
-
-        sliding_windows([winW, winH])
-
-        output_path = opt.output
-
-        with open(os.path.join(output_path, 'detection.json')) as json_file:
-            input_json = json.load(json_file)
-
-        image_before_filter = cv2.imread(opt.image)
-        draw_bounding_boxes(input_json, image_before_filter)
-        cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
-
-        input_json = filter_bounding_boxes(input_json)
-        with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
-            json.dump(input_json, img_json, indent=4)
-
-        image = cv2.imread(opt.image)
-        draw_bounding_boxes(input_json, image)
-        cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
-
-        image_circles = cv2.imread(opt.image)
-        draw_circles(input_json, image_circles)
-        cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
+        print("Could not find a valid trained weights for detection. Please supply a valid weights")
+        sys.exit()
