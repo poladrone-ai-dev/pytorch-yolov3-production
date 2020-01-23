@@ -13,6 +13,7 @@ from matplotlib.ticker import NullLocator
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
 import pyimagesearch.global_var as global_var
+import tensorflow as tf
 
 import os
 import sys
@@ -51,8 +52,57 @@ def calculate_iou(boxA, boxB):
     # return the intersection over union value
     return iou, interArea, boxAArea, boxBArea
 
-def detect_image_tensorflow(window, model):
-    pass
+def detect_image_tensorflow(window):
+    img_size = 416  # don't change this, because the model is trained on 416 x 416 images
+    conf_thres = opt.conf_thres
+    nms_thres = opt.nms_thres
+
+    # scale and pad image
+    ratio = min(img_size / window.shape[0], img_size / window.shape[1])
+    imw = round(window.shape[0] * ratio)
+    imh = round(window.shape[1] * ratio)
+
+    with tf.gfile.FastGFile(opt.weights_path, 'rb') as f:
+        graph_def = tf.GraphDef()
+        graph_def.ParseFromString(f.read())
+
+    config = tf.ConfigProto(
+        gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.6)
+        # device_count = {'GPU': 1}
+    )
+
+    with tf.Session(config=config) as sess:
+        sess.graph.as_default()
+        tf.import_graph_def(graph_def, name='')
+        sw_img = window
+
+        inp = cv2.resize(sw_img, (imw, imh))
+        inp = inp[:, :, [2, 1, 0]]
+        out = sess.run([sess.graph.get_tensor_by_name('num_detections:0'),
+                        sess.graph.get_tensor_by_name('detection_scores:0'),
+                        sess.graph.get_tensor_by_name('detection_boxes:0'),
+                        sess.graph.get_tensor_by_name('detection_classes:0')],
+                       feed_dict={'image_tensor:0': inp.reshape(1, inp.shape[0], inp.shape[1], 3)})
+
+        num_detections = int(out[0][0])
+        detection_output = []
+
+        print("Number of Total Detections out from the model =>>> %d" % num_detections)
+        for i in range(num_detections):
+            classId = int(out[3][0][i])
+            score = float(out[1][0][i])
+            bbox = [float(v) for v in out[2][0][i]]
+            if score > conf_thres:
+                print("Class ID = >>%d" % classId + "  score  =>>> %f" % score)
+                x1 = bbox[1]
+                y1 = bbox[0]
+                x2 = bbox[3]
+                y2 = bbox[2]
+
+                detection_output.append([x1, y1, x2, y2, score, score, classId - 1])
+
+        output_tensor = torch.FloatTensor(detection_output)
+        return output_tensor
 
 def detect_image(window, model):
     img_size = 416 # don't change this, because the model is trained on 416 x 416 images
@@ -201,7 +251,10 @@ def sliding_windows(window_dim):
             detections = detect_image(window, model)
 
         if GetWeightsType() == "tensorflow":
-            detections = detect_image_tensorflow(window, graph_def)
+            detections = detect_image_tensorflow(window)
+
+        print(detections)
+        print(type(detections))
 
         if GetWeightsType() == None:
             print("Error: No valid weights found.")
@@ -212,7 +265,9 @@ def sliding_windows(window_dim):
             print("Non-square detection window detected. Window dimension: (" + str(window_width) + ", " + str(window_height) + ")")
 
         if detections is not None:
-            detections = rescale_boxes(detections, opt.img_size, window.shape[:2])
+
+            if GetWeightsType() == "yolo" or GetWeightsType() == 'pytorch':
+                detections = rescale_boxes(detections, opt.img_size, window.shape[:2])
 
             for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
                 box_name = "box" + str(box_idx)
@@ -220,6 +275,8 @@ def sliding_windows(window_dim):
                 box_h = y2 - y1
                 center_x = ((x1.item() + x2.item()) / 2)
                 center_y = ((y1.item() + y2.item()) / 2)
+
+                print(classes)
 
                 if box_name not in output_json:
                     output_json[box_name] = \
@@ -416,6 +473,11 @@ if __name__ == "__main__":
         shutil.rmtree(opt.output)
     os.mkdir(opt.output)
 
+    im = Image.open(opt.image)
+    image_width, image_height = im.size
+
+    classes = load_classes(opt.class_path)
+
     if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
@@ -436,8 +498,6 @@ if __name__ == "__main__":
 
         classes = load_classes(opt.class_path)  # Extracts class labels from file
         Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-        im = Image.open(opt.image)
-        image_width, image_height = im.size
 
         if image_width <= 500 and image_height <= 500:
             [winW, winH] = [230, 230]
@@ -456,56 +516,54 @@ if __name__ == "__main__":
             global_var.max_y = (image_height / opt.y_stride) - 1
 
             print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
+            start_time = time.time()
             sliding_windows([winW, winH])
+            end_time = time.time()
+            print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
 
-            output_path = opt.output
-
-            with open(os.path.join(output_path, 'detection.json')) as json_file:
-                input_json = json.load(json_file)
-
-            image_before_filter = cv2.imread(opt.image)
-            draw_bounding_boxes(input_json, image_before_filter)
-            cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
-
-            iou_thres_range = [0.5, 0.4, 0.3, 0.2, 0.1]
-
-            for iou_thres in iou_thres_range:
-                input_json = filter_bounding_boxes(input_json, iou_thres)
-
-            with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
-                json.dump(input_json, img_json, indent=4)
-
-            image = cv2.imread(opt.image)
-            draw_bounding_boxes(input_json, image)
-            cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
-
-            image_circles = cv2.imread(opt.image)
-            draw_circles(input_json, image_circles)
-            cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
 
     elif GetWeightsType() == "tensorflow":
-        with tf.gfile.FastGFile(opt.model_def, 'rb') as f:
-            graph_def = tf.GraphDef()
-            graph_def.ParseFromString(f.read())
+        print("Loaded tensorflow weights: " + os.path.basename(opt.weights_path) + ".")
 
-        with tf.Session() as sess:
-            sess.graph.as_default()
-            tf.import_graph_def(graph_def, name='')
+        [winW, winH] = [opt.window_size, opt.window_size]
+        opt.x_stride = int(winW / 2)
+        opt.y_stride = int(winH / 2)
 
-            print("Loaded tensorflow weights: " + os.path.basename(opt.weights_path) + ".")
+        global_var.max_x = (image_width / opt.x_stride) - 1
+        global_var.max_y = (image_height / opt.y_stride) - 1
 
-            [winW, winH] = [opt.window_size, opt.window_size]
-            opt.x_stride = int(winW / 2)
-            opt.y_stride = int(winH / 2)
+        print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
 
-            global_var.max_x = (image_width / opt.x_stride) - 1
-            global_var.max_y = (image_height / opt.y_stride) - 1
-
-            print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
-
-            sliding_windows([winW, winH])
-            output_path = opt.output
+        start_time = time.time()
+        sliding_windows([winW, winH])
+        end_time = time.time()
+        print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
 
     else:
         print("Could not find a valid trained weights for detection. Please supply a valid weights")
         sys.exit()
+
+    output_path = opt.output
+
+    with open(os.path.join(output_path, 'detection.json')) as json_file:
+        input_json = json.load(json_file)
+
+    image_before_filter = cv2.imread(opt.image)
+    draw_bounding_boxes(input_json, image_before_filter)
+    cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
+
+    iou_thres_range = [0.5, 0.4, 0.3, 0.2, 0.1]
+
+    for iou_thres in iou_thres_range:
+        input_json = filter_bounding_boxes(input_json, iou_thres)
+
+    with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
+        json.dump(input_json, img_json, indent=4)
+
+    image = cv2.imread(opt.image)
+    draw_bounding_boxes(input_json, image)
+    cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
+
+    image_circles = cv2.imread(opt.image)
+    draw_circles(input_json, image_circles)
+    cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)

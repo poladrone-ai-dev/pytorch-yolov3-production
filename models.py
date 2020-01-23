@@ -233,7 +233,6 @@ class YOLOLayer(nn.Module):
 
             return output, total_loss
 
-
 class Darknet(nn.Module):
     """YOLOv3 object detection model"""
 
