@@ -1,5 +1,4 @@
 from __future__ import division
-
 from models import *
 from utils.utils import *
 from utils.datasets import *
@@ -17,12 +16,9 @@ import time
 import datetime
 import argparse
 import json
-import re
 import cv2
 import torch
-import copy
 import shutil
-import cProfile
 import pstats
 
 import matplotlib.pyplot as plt
@@ -55,16 +51,18 @@ def detect_image_tensorflow(window, sess=None):
     conf_thres = opt.conf_thres
     nms_thres = opt.nms_thres
 
+    rows = opt.window_size
+    cols = opt.window_size
+
     # scale and pad image
     ratio = min(img_size / window.shape[0], img_size / window.shape[1])
     imw = round(window.shape[0] * ratio)
     imh = round(window.shape[1] * ratio)
 
     sw_img = window
-    inp = cv2.resize(sw_img, (imw, imh))
+    # inp = cv2.resize(sw_img, (imw, imh))
 
-    rows = opt.window_size
-    cols = opt.window_size
+    inp = sw_img
 
     inp = inp[:, :, [2, 1, 0]]
     out = sess.run([sess.graph.get_tensor_by_name('num_detections:0'),
@@ -121,30 +119,41 @@ def detect_image(window, model):
     return detections[0]
 
 def filter_bounding_boxes(output_json, iou_thres):
-    filtered_json = copy.deepcopy(output_json)
-    num_boxes = len(filtered_json)
+    num_boxes = len(output_json)
     print("Number of boxes before filtering: " + str(num_boxes))
     deleted_boxes = []
+    same_conf_boxes = []
 
-    for boxA in filtered_json:
-        for boxB in filtered_json:
+    for boxA in output_json:
+        for boxB in output_json:
             if boxA != boxB:
                 iou, interArea, boxAArea, boxBArea = calculate_iou(output_json[boxA], output_json[boxB])
 
                 if iou > iou_thres:
+                    if output_json[boxA]["conf"] == output_json[boxB]["conf"] and boxA not in same_conf_boxes and boxB not in same_conf_boxes:
+                        rand_num = random.randint(1,2)
+
+                        if rand_num == 1:
+                            if boxA not in deleted_boxes and boxA not in same_conf_boxes:
+                                deleted_boxes.append(boxA)
+                                same_conf_boxes.append(boxA)
+                        elif rand_num == 2:
+                            if boxB not in deleted_boxes and boxB not in same_conf_boxes:
+                                deleted_boxes.append(boxB)
+                                same_conf_boxes.append(boxB)
+
                     if output_json[boxA]["conf"] < output_json[boxB]["conf"]:
                         if boxA not in deleted_boxes:
                             deleted_boxes.append(boxA)
-
-                    if output_json[boxB]["conf"] < output_json[boxA]["conf"]:
+                    elif output_json[boxB]["conf"] < output_json[boxA]["conf"]:
                         if boxB not in deleted_boxes:
                             deleted_boxes.append(boxB)
+
 
     print("Deleted boxes: " + str(deleted_boxes))
     print("Number of deleted boxes: " + str(len(deleted_boxes)))
 
-    # delete the filtered boxes
-    for box in filtered_json:
+    for box in list(output_json):
         if box in deleted_boxes:
             del output_json[box]
 
@@ -215,10 +224,6 @@ def sliding_windows(window_dim, tf_session=None):
 
         if GetWeightsType() == "tensorflow":
             detections = detect_image_tensorflow(window, tf_session)
-            # profile = cProfile.Profile()
-            # profile.runcall(detect_image_tensorflow, window)
-            # ps = pstats.Stats(profile)
-            # ps.sort_stats("time").print_stats()
 
         if GetWeightsType() == None:
             print("Error: No valid weights found.")
@@ -268,17 +273,11 @@ def sliding_windows(window_dim, tf_session=None):
                 fp.write(classes[int(cls_pred)] + " " + str(round(cls_conf.data.tolist(), 3)) + " " + str(round(x1.item()))
                          + " " + str(round(y1.item())) + " " + str(round(x2.item())) + " " + str(round(y2.item())) + "\n")
 
-
-                #if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
                 calculate_box_offset(output_json, window_name, box_name)
                 box_idx += 1
 
-        # cv2.rectangle(image, (x, y), (x + winW, y + winH), (0, 255, 0), 2)
         cv2.imshow("Window", image)
-
-        # cv2.imwrite(os.path.join(output_path, "picture_" + str(box_idx) + ".jpeg"), image)
         window_idx += 1
-        # image = cv2.imread(opt.image)
         cv2.waitKey(1)
 
     fp.close()
@@ -439,6 +438,9 @@ if __name__ == "__main__":
 
     im = Image.open(opt.image)
     image_width, image_height = im.size
+    image_width = int(round(image_width, -2))
+    image_height = int(round(image_height, -2))
+    # print("Image width: " + str(image_width) + " image height: " + str(image_height))
 
     classes = load_classes(opt.class_path)
 
@@ -450,7 +452,7 @@ if __name__ == "__main__":
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
-
+        print("PyTorch model detected.")
         if opt.weights_path.endswith(".weights"):
             # Load darknet weights
             print("Loaded the full weights with network architecture.")
@@ -486,17 +488,14 @@ if __name__ == "__main__":
 
             print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
             start_time = time.time()
-            #sliding_windows([winW, winH])
-            profile = cProfile.Profile()
-            profile.runcall(sliding_windows, [winW, winH])
-            ps = pstats.Stats(profile)
-            ps.sort_stats("time").print_stats()
+            sliding_windows([winW, winH])
             end_time = time.time()
             print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
 
 
     elif GetWeightsType() == "tensorflow":
         import tensorflow as tf
+        print("Tensorflow weights detected.")
         print("Loaded tensorflow weights: " + os.path.basename(opt.weights_path) + ".")
 
         [winW, winH] = [opt.window_size, opt.window_size]
@@ -521,13 +520,7 @@ if __name__ == "__main__":
         sess = tf.Session(config=config)
         sess.graph.as_default()
         tf.import_graph_def(graph_def, name='')
-
         sliding_windows([winW, winH], sess)
-
-        # profile = cProfile.Profile()
-        # profile.runcall(sliding_windows, [winW, winH])
-        # ps = pstats.Stats(profile)
-        # ps.sort_stats("time").print_stats()
         sess.close()
         end_time = time.time()
         print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
@@ -535,9 +528,6 @@ if __name__ == "__main__":
     else:
         print("Could not find a valid trained weights for detection. Please supply a valid weights")
         sys.exit()
-
-    # pr = cProfile.Profile()
-    # pr.enable()
 
     output_path = opt.output
 
@@ -548,7 +538,11 @@ if __name__ == "__main__":
     draw_bounding_boxes(input_json, image_before_filter)
     cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
 
-    iou_thres_range = [0.5, 0.4, 0.3, 0.2, 0.1]
+    # for PyTorch YOLO
+    # iou_thres_range = [0.5, 0.4, 0.3, 0.2, 0.1]
+
+    # for Tensorflow RCNN
+    iou_thres_range = [0.5]
 
     for iou_thres in iou_thres_range:
         input_json = filter_bounding_boxes(input_json, iou_thres)
@@ -563,6 +557,3 @@ if __name__ == "__main__":
     image_circles = cv2.imread(opt.image)
     draw_circles(input_json, image_circles)
     cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
-
-    # pr.disable()
-    # pr.print_stats(sort='time')
