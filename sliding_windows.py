@@ -5,9 +5,12 @@ from utils.datasets import *
 from pyimagesearch.find_neighbors import *
 
 from PIL import Image
+from skimage.io import imread
 from matplotlib.ticker import NullLocator
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
+from collections import OrderedDict
+
 import pyimagesearch.global_var as global_var
 
 import os
@@ -74,7 +77,7 @@ def detect_image_tensorflow(window, sess=None):
     num_detections = int(out[0][0])
     detection_output = []
 
-    print("Number of Total Detections out from the model =>>> %d" % num_detections)
+    # print("Number of Total Detections out from the model =>>> %d" % num_detections)
     for i in range(num_detections):
         classId = int(out[3][0][i])
         score = float(out[1][0][i])
@@ -117,6 +120,80 @@ def detect_image(window, model):
         detections = non_max_suppression(detections, conf_thres, nms_thres)
 
     return detections[0]
+
+def SortDetections(detections):
+
+    detections_list = []
+
+    for box in detections:
+        detections_list.append({box: detections[box]})
+
+    sorted_detections = sorted(detections_list, key=lambda item: (list(item.values())[0]['x1'], list(item.values())[0]['y1']))
+    sorted_detections_dict = {}
+
+    for i in range(len(sorted_detections)):
+        key = list(sorted_detections[i].keys())[0]
+
+        for kvp in sorted_detections[i].values():
+            sorted_detections_dict[key] = kvp
+
+    with open(os.path.join(opt.output, "detections_sorted.json"), 'w') as json_fp:
+        json.dump(sorted_detections_dict, json_fp, indent=4)
+
+    return sorted_detections_dict
+
+def filter_bounding_boxes_optimized(detections_json, iou_thres):
+    deleted_boxes = []
+    same_conf_boxes = []
+    num_boxes = len(detections_json)
+    print("Number of boxes before filtering: " + str(num_boxes))
+    detections_json_list = list(detections_json)
+
+    for idx in range(len(detections_json_list)):
+        neighbor_boxes = []
+
+        neighbor_range = 101
+        for neighbor_idx in range(1, neighbor_range):
+            if idx + neighbor_idx < len(detections_json):
+                neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
+
+        for box in neighbor_boxes:
+            boxA = detections_json_list[idx]
+            boxB = box
+
+            # print(boxA)
+            # print(boxB)
+            iou, interArea, boxAArea, boxBArea = calculate_iou(detections_json[boxA], detections_json[boxB])
+
+            if iou > iou_thres:
+                if detections_json[boxA]["conf"] == detections_json[boxB]["conf"] and boxA not in same_conf_boxes and boxB not in same_conf_boxes:
+                    rand_num = random.randint(1, 2)
+
+                    if rand_num == 1:
+                        if boxA not in deleted_boxes and boxA not in same_conf_boxes:
+                            deleted_boxes.append(boxA)
+                            same_conf_boxes.append(boxA)
+                    elif rand_num == 2:
+                        if boxB not in deleted_boxes and boxB not in same_conf_boxes:
+                            deleted_boxes.append(boxB)
+                            same_conf_boxes.append(boxB)
+
+                if detections_json[boxA]["conf"] < detections_json[boxB]["conf"]:
+                    if boxA not in deleted_boxes:
+                        deleted_boxes.append(boxA)
+                elif detections_json[boxB]["conf"] < detections_json[boxA]["conf"]:
+                    if boxB not in deleted_boxes:
+                        deleted_boxes.append(boxB)
+
+    print("Deleted boxes: " + str(deleted_boxes))
+    print("Number of deleted boxes: " + str(len(deleted_boxes)))
+
+    for box in list(detections_json):
+        if box in deleted_boxes:
+            del detections_json[box]
+
+    print("Number of boxes after filtering: " + str(len(detections_json.keys())))
+    return detections_json
 
 def filter_bounding_boxes(output_json, iou_thres):
     num_boxes = len(output_json)
@@ -191,8 +268,17 @@ def draw_circles(output_json, image):
         center_y = output_json[box]["center_y"]
         cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
 
+def IsBackgroundMostlyBlack(window, winW, winH):
+    try:
+        if window[int(winW/2), int(winH/2)].all() == np.array([0,0,0]).all():
+            return True
+    except Exception as e:
+        print(e)
+
+    return False
+
 def sliding_windows(window_dim, tf_session=None):
-    image = cv2.imread(opt.image)
+    image = imread(opt.image, plugin='pil') # specifies pil plugin, or the default one program searches is used (TIFF, etc...)
     cv2.namedWindow("output", cv2.WINDOW_NORMAL)
     output_path = opt.output
     window_idx = 0
@@ -205,94 +291,96 @@ def sliding_windows(window_dim, tf_session=None):
 
     fp = open(os.path.join(output_path, "detections.txt"), "a")
 
+    if not os.path.isdir(os.path.join(opt.output, "sliding_windows")):
+        os.mkdir(os.path.join(opt.output, "sliding_windows"))
+
     #for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
     for (x, y, window) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride, windowSize=[winW, winH]):
+
+        if window is None:
+            continue
 
         window_name = "window_" + str(global_var.x_coord) + "_" + str(global_var.y_coord)
         window_image = Image.fromarray(window)
         window_width, window_height = window_image.size
 
-        if not os.path.isdir(os.path.join(opt.output, "sliding_windows")):
-            os.mkdir(os.path.join(opt.output, "sliding_windows"))
+        if not IsBackgroundMostlyBlack(window, window_width, window_height):
 
-        window_image.save(os.path.join(opt.output, "sliding_windows", window_name + ".jpg"))
+            window_image.save(os.path.join(opt.output, "sliding_windows", window_name + ".jpg"))
 
-        print("Performing detection on " + window_name + ".")
+            print("Performing detection on " + window_name + ".")
 
-        if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
-            detections = detect_image(window, model)
+            if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
+                detections = detect_image(window, model)
 
-        if GetWeightsType() == "tensorflow":
-            detections = detect_image_tensorflow(window, tf_session)
+            if GetWeightsType() == "tensorflow":
+                detections = detect_image_tensorflow(window, tf_session)
 
-        if GetWeightsType() == None:
-            print("Error: No valid weights found.")
-            print("Please supply a valid trained weights for detection.")
-            sys.exit()
+            if GetWeightsType() == None:
+                print("Error: No valid weights found.")
+                print("Please supply a valid trained weights for detection.")
+                sys.exit()
 
-        if window_width != winW or window_height != winH:
-            print("Non-square detection window detected. Window dimension: (" + str(window_width) + ", " + str(window_height) + ")")
+            if window_width != winW or window_height != winH:
+                print("Non-square detection window detected. Window dimension: (" + str(window_width) + ", " + str(window_height) + ")")
 
-        if detections is not None:
-            if GetWeightsType() == "yolo" or GetWeightsType() == 'pytorch':
-                detections = rescale_boxes(detections, opt.img_size, window.shape[:2])
+            if detections is not None:
+                if GetWeightsType() == "yolo" or GetWeightsType() == 'pytorch':
+                    detections = rescale_boxes(detections, opt.img_size, window.shape[:2])
 
+                for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
+                    box_name = "box" + str(box_idx)
+                    box_w = x2 - x1
+                    box_h = y2 - y1
+                    center_x = ((x1.item() + x2.item()) / 2)
+                    center_y = ((y1.item() + y2.item()) / 2)
 
-            for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                box_name = "box" + str(box_idx)
-                box_w = x2 - x1
-                box_h = y2 - y1
-                center_x = ((x1.item() + x2.item()) / 2)
-                center_y = ((y1.item() + y2.item()) / 2)
+                    if box_name not in output_json:
+                        output_json[box_name] = \
+                            {
+                                "x1": round(x1.item()),
+                                "y1": round(y1.item()),
+                                "x2": round(x2.item()),
+                                "y2": round(y2.item()),
+                                "x1_og": round(x1.item()),
+                                "y1_og": round(y1.item()),
+                                "x2_og": round(x2.item()),
+                                "y2_og": round(y2.item()),
+                                "width": round(box_w.item()),
+                                "height": round(box_h.item()),
+                                "center_x": round(center_x),
+                                "center_y": round(center_y),
+                                "window_width": window_width,
+                                "window_height": window_height,
+                                "x_offset": global_var.x_offset,
+                                "y_offset": global_var.y_offset,
+                                "scaling": 1,
+                                "conf": round(conf.item(), 3),
+                                "cls_conf": round(cls_conf.data.tolist(), 3),
+                                "cls_pred": classes[int(cls_pred)]
+                            }
 
-                if box_name not in output_json:
-                    output_json[box_name] = \
-                        {
-                            "x1": round(x1.item()),
-                            "y1": round(y1.item()),
-                            "x2": round(x2.item()),
-                            "y2": round(y2.item()),
-                            "x1_og": round(x1.item()),
-                            "y1_og": round(y1.item()),
-                            "x2_og": round(x2.item()),
-                            "y2_og": round(y2.item()),
-                            "width": round(box_w.item()),
-                            "height": round(box_h.item()),
-                            "center_x": round(center_x),
-                            "center_y": round(center_y),
-                            "window_width": window_width,
-                            "window_height": window_height,
-                            "x_offset": global_var.x_offset,
-                            "y_offset": global_var.y_offset,
-                            "scaling": 1,
-                            "conf": round(conf.item(), 3),
-                            "cls_conf": round(cls_conf.data.tolist(), 3),
-                            "cls_pred": classes[int(cls_pred)]
-                        }
+                    fp.write(classes[int(cls_pred)] + " " + str(round(cls_conf.data.tolist(), 3)) + " " + str(round(x1.item()))
+                             + " " + str(round(y1.item())) + " " + str(round(x2.item())) + " " + str(round(y2.item())) + "\n")
 
-                fp.write(classes[int(cls_pred)] + " " + str(round(cls_conf.data.tolist(), 3)) + " " + str(round(x1.item()))
-                         + " " + str(round(y1.item())) + " " + str(round(x2.item())) + " " + str(round(y2.item())) + "\n")
+                    calculate_box_offset(output_json, window_name, box_name)
+                    box_idx += 1
 
-                calculate_box_offset(output_json, window_name, box_name)
-                box_idx += 1
-
-        cv2.imshow("Window", image)
-        window_idx += 1
-        cv2.waitKey(1)
+            # cv2.imshow("Window", image)
+            window_idx += 1
+            cv2.waitKey(1)
 
     fp.close()
     cv2.imwrite(os.path.join(output_path, "output.jpeg"), image)
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
         json.dump(output_json, img_json, indent=4)
 
-box_idx = 0
-
 def dataloader(window_dim):
     output_json = {}
     [winW, winH] = window_dim
     window_idx = 0
     output_path = opt.output
-    global box_idx
+    box_idx = 0
 
     image_path = os.path.dirname(opt.image)
     dataloader = DataLoader(
@@ -431,6 +519,8 @@ if __name__ == "__main__":
     parser.add_argument("--x_stride", type=int, default=200, help="width stride of the sliding window in pixels")
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
 
+    Image.MAX_IMAGE_PIXELS = 20000000000
+
     opt = parser.parse_args()
     if os.path.isdir(opt.output):
         shutil.rmtree(opt.output)
@@ -534,26 +624,29 @@ if __name__ == "__main__":
     with open(os.path.join(output_path, 'detection.json')) as json_file:
         input_json = json.load(json_file)
 
-    image_before_filter = cv2.imread(opt.image)
+    image_before_filter = imread(opt.image, plugin='pil')
     draw_bounding_boxes(input_json, image_before_filter)
     cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
 
-    # for PyTorch YOLO
-    # iou_thres_range = [0.5, 0.4, 0.3, 0.2, 0.1]
+    input_json = SortDetections(input_json)
 
-    # for Tensorflow RCNN
     iou_thres_range = [0.5]
 
+    filtering_start = time.time()
     for iou_thres in iou_thres_range:
-        input_json = filter_bounding_boxes(input_json, iou_thres)
+        # input_json = filter_bounding_boxes(input_json, iou_thres)
+        input_json = filter_bounding_boxes_optimized(input_json, iou_thres)
+    filtering_end = time.time()
+
+    print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
 
     with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
         json.dump(input_json, img_json, indent=4)
 
-    image = cv2.imread(opt.image)
+    image = imread(opt.image, plugin='pil')
     draw_bounding_boxes(input_json, image)
     cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
 
-    image_circles = cv2.imread(opt.image)
+    image_circles = imread(opt.image, plugin='pil')
     draw_circles(input_json, image_circles)
     cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
