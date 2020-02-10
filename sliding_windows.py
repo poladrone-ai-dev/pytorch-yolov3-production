@@ -6,10 +6,9 @@ from pyimagesearch.find_neighbors import *
 
 from PIL import Image
 from skimage.io import imread
-from matplotlib.ticker import NullLocator
+# from matplotlib.ticker import NullLocator
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
-from collections import OrderedDict
 
 import pyimagesearch.global_var as global_var
 
@@ -22,38 +21,27 @@ import json
 import cv2
 import torch
 import shutil
-import pstats
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 def calculate_iou(boxA, boxB):
-    # determine the (x, y)-coordinates of the intersection rectangle
     xA = max(boxA["x1"], boxB["x1"])
     yA = max(boxA["y1"], boxB["y1"])
     xB = min(boxA["x2"], boxB["x2"])
     yB = min(boxA["y2"], boxB["y2"])
 
-    # compute the area of intersection rectangle
     interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
-
-    # compute the area of both the prediction and ground-truth rectangles
     boxAArea = (boxA["x2"] - boxA["x1"] + 1) * (boxA["y2"] - boxA["y1"] + 1)
     boxBArea = (boxB["x2"] - boxB["x1"] + 1) * (boxB["y2"] - boxB["y1"] + 1)
-
-    # compute the intersection over union by taking the intersection
-    # area and dividing it by the sum of prediction + ground-truth
-    # areas - the interesection area
     iou = interArea / float(boxAArea + boxBArea - interArea)
 
-    # return the intersection over union value
     return iou, interArea, boxAArea, boxBArea
 
 def detect_image_tensorflow(window, sess=None):
     img_size = 416  # don't change this, because the model is trained on 416 x 416 images
     conf_thres = opt.conf_thres
     nms_thres = opt.nms_thres
-
     rows = opt.window_size
     cols = opt.window_size
 
@@ -61,12 +49,7 @@ def detect_image_tensorflow(window, sess=None):
     ratio = min(img_size / window.shape[0], img_size / window.shape[1])
     imw = round(window.shape[0] * ratio)
     imh = round(window.shape[1] * ratio)
-
-    sw_img = window
-    # inp = cv2.resize(sw_img, (imw, imh))
-
-    inp = sw_img
-
+    inp = window
     inp = inp[:, :, [2, 1, 0]]
     out = sess.run([sess.graph.get_tensor_by_name('num_detections:0'),
                     sess.graph.get_tensor_by_name('detection_scores:0'),
@@ -161,8 +144,6 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
             boxA = detections_json_list[idx]
             boxB = box
 
-            # print(boxA)
-            # print(boxB)
             iou, interArea, boxAArea, boxBArea = calculate_iou(detections_json[boxA], detections_json[boxB])
 
             if iou > iou_thres:
@@ -366,7 +347,6 @@ def sliding_windows(window_dim, tf_session=None):
                     calculate_box_offset(output_json, window_name, box_name)
                     box_idx += 1
 
-            # cv2.imshow("Window", image)
             window_idx += 1
             cv2.waitKey(1)
 

@@ -24,13 +24,10 @@ def pyramid(image, scale=2, minSize=(1250, 1250)):
         print("Yield rescaled image of size [" + str(image.shape[1]) + ", " + str(image.shape[0]) + "]")
 
 def sliding_window(image, x_stepSize, y_stepSize, windowSize):
-
     for y in range(0, image.shape[0], windowSize[0] - y_stepSize):
-        global_var.next_row = False
         for x in range(0, image.shape[1], x_stepSize):
             global_var.y_coord += 1
-            # print("x_coord: " + str(global_var.x_coord))
-            # print("y_coord: " + str(global_var.y_coord))
+
             if y + windowSize[0] > image.shape[0]:
                 new_x = image.shape[0] - windowSize[0]
                 if global_var.x_coord < global_var.max_y:
@@ -45,6 +42,5 @@ def sliding_window(image, x_stepSize, y_stepSize, windowSize):
                 if global_var.y_coord < global_var.max_x:
                     yield (x, y, image[y:y + windowSize[1], x:x + windowSize[0]])
 
-        global_var.next_row = True
         global_var.y_coord = -1
         global_var.x_coord += 1
