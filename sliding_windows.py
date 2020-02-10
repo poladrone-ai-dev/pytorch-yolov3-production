@@ -125,6 +125,20 @@ def SortDetections(detections):
 
     return sorted_detections_dict
 
+def ExportJsonToCSV(detection_json, output_path):
+
+    with open(os.path.join(output_path, "detections.csv"), 'a+') as detection:
+        for box in detection_json:
+            detection.write(box.replace("box", "") + "," + str(detection_json[box]["conf"]) + ","
+                            + str(detection_json[box]["center_x"]) + "," + str(detection_json[box]["center_y"]) + "\n")
+
+def ExportJsonToText(detection_json, output_path):
+    with open(os.path.join(output_path, "detections_filtered.txt"), 'a+') as detection:
+        for box in detection_json:
+            detection.write(box.replace("box", "") + " " + str(detection_json[box]["conf"]) + " " + str(detection_json[box]["x1"]) + " "
+                            + str(detection_json[box]["y1"]) + " " + str(detection_json[box]["x2"]) + " "
+                            + str(detection_json[box]["y2"]) + '\n')
+
 def filter_bounding_boxes_optimized(detections_json, iou_thres):
     deleted_boxes = []
     same_conf_boxes = []
@@ -174,49 +188,15 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
             del detections_json[box]
 
     print("Number of boxes after filtering: " + str(len(detections_json.keys())))
-    return detections_json
 
-def filter_bounding_boxes(output_json, iou_thres):
-    num_boxes = len(output_json)
-    print("Number of boxes before filtering: " + str(num_boxes))
-    deleted_boxes = []
-    same_conf_boxes = []
+    print("Renaming bounding boxes")
+    box_count = 0
+    new_detections_json = {}
+    for box in detections_json:
+        new_detections_json["box" + str(box_count)] = detections_json[box]
+        box_count += 1
 
-    for boxA in output_json:
-        for boxB in output_json:
-            if boxA != boxB:
-                iou, interArea, boxAArea, boxBArea = calculate_iou(output_json[boxA], output_json[boxB])
-
-                if iou > iou_thres:
-                    if output_json[boxA]["conf"] == output_json[boxB]["conf"] and boxA not in same_conf_boxes and boxB not in same_conf_boxes:
-                        rand_num = random.randint(1,2)
-
-                        if rand_num == 1:
-                            if boxA not in deleted_boxes and boxA not in same_conf_boxes:
-                                deleted_boxes.append(boxA)
-                                same_conf_boxes.append(boxA)
-                        elif rand_num == 2:
-                            if boxB not in deleted_boxes and boxB not in same_conf_boxes:
-                                deleted_boxes.append(boxB)
-                                same_conf_boxes.append(boxB)
-
-                    if output_json[boxA]["conf"] < output_json[boxB]["conf"]:
-                        if boxA not in deleted_boxes:
-                            deleted_boxes.append(boxA)
-                    elif output_json[boxB]["conf"] < output_json[boxA]["conf"]:
-                        if boxB not in deleted_boxes:
-                            deleted_boxes.append(boxB)
-
-
-    print("Deleted boxes: " + str(deleted_boxes))
-    print("Number of deleted boxes: " + str(len(deleted_boxes)))
-
-    for box in list(output_json):
-        if box in deleted_boxes:
-            del output_json[box]
-
-    print("Number of boxes after filtering: " + str(len(output_json.keys())))
-    return output_json
+    return new_detections_json
 
 def calculate_box_offset(output_json, window, box):
     coords = get_tile_coordinates(window)
@@ -239,7 +219,7 @@ def draw_bounding_boxes(output_json, image):
         cls_pred = output_json[box]["cls_pred"]
         conf = output_json[box]["conf"]
 
-        cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
@@ -502,8 +482,10 @@ if __name__ == "__main__":
     Image.MAX_IMAGE_PIXELS = 20000000000
 
     opt = parser.parse_args()
+
     if os.path.isdir(opt.output):
         shutil.rmtree(opt.output)
+
     os.mkdir(opt.output)
 
     im = Image.open(opt.image)
@@ -614,19 +596,28 @@ if __name__ == "__main__":
 
     filtering_start = time.time()
     for iou_thres in iou_thres_range:
-        # input_json = filter_bounding_boxes(input_json, iou_thres)
         input_json = filter_bounding_boxes_optimized(input_json, iou_thres)
     filtering_end = time.time()
 
     print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
 
+    ExportJsonToCSV(input_json, output_path)
+    ExportJsonToText(input_json, output_path)
+
     with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
         json.dump(input_json, img_json, indent=4)
 
+    write_boxes_start = time.time()
     image = imread(opt.image, plugin='pil')
     draw_bounding_boxes(input_json, image)
     cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
+    write_boxes_end = time.time()
 
+    write_circles_start = time.time()
     image_circles = imread(opt.image, plugin='pil')
     draw_circles(input_json, image_circles)
     cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
+    write_circles_end = time.time()
+
+    print("Writing boxes elapsed time: " + str(write_boxes_end - write_boxes_start) + "s.")
+    print("Write circles elapsed time: " + str(write_circles_end - write_circles_start) + "s.")
