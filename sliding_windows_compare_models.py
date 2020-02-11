@@ -505,6 +505,7 @@ if __name__ == "__main__":
     weights = [opt.weights_path, opt.second_weight]
     output_paths = []
     shrink_bbox = False
+    second_weight = False
 
     for weight in weights:
         print("Performing detection on " + opt.image + " with " + os.path.basename(weight) + ".")
@@ -523,10 +524,16 @@ if __name__ == "__main__":
             print("PyTorch model detected.")
             if opt.weights_path.endswith(".weights"):
                 print("Loaded the full weights with network architecture.")
-                model.load_darknet_weights(opt.weights_path)
+                if not second_weight:
+                    model.load_darknet_weights(opt.weights_path)
+                else:
+                    model.load_darknet_weights(opt.second_weight)
             else:
                 print("Loaded only the trained weights.")
-                model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
+                if not second_weight:
+                    model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
+                else:
+                    model.load_state_dict(torch.load(opt.second_weight, map_location=torch.device('cpu')))
 
             print("Weights: " + os.path.basename(opt.weights_path) + ".")
             print("Config: " + os.path.basename(opt.model_def) + ".")
@@ -576,9 +583,14 @@ if __name__ == "__main__":
             print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
             start_time = time.time()
 
-            with tf.gfile.FastGFile(opt.weights_path, 'rb') as f:
-                graph_def = tf.GraphDef()
-                graph_def.ParseFromString(f.read())
+            if not second_weight:
+                with tf.gfile.FastGFile(opt.weights_path, 'rb') as f:
+                    graph_def = tf.GraphDef()
+                    graph_def.ParseFromString(f.read())
+            else:
+                with tf.gfile.FastGFile(opt.second_weight, 'rb') as f:
+                    graph_def = tf.GraphDef()
+                    graph_def.ParseFromString(f.read())
 
             config = tf.ConfigProto(
                 gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
@@ -628,6 +640,7 @@ if __name__ == "__main__":
         global_var.x_coord = 0
         global_var.y_coord = -1
         shrink_bbox = True
+        second_weight = True
 
     combined_path = os.path.join(opt.output, "combined_detections")
     if os.path.isdir(combined_path):
@@ -640,7 +653,3 @@ if __name__ == "__main__":
                         os.path.join(combined_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"))
         shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"),
                         os.path.join(combined_path, os.path.basename(output_path) + "_detection.jpeg"))
-
-
-
-
