@@ -6,7 +6,6 @@ from pyimagesearch.find_neighbors import *
 
 from PIL import Image
 from skimage.io import imread
-# from matplotlib.ticker import NullLocator
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
 
@@ -66,7 +65,7 @@ def detect_image_tensorflow(window, sess=None):
         score = float(out[1][0][i])
         bbox = [float(v) for v in out[2][0][i]]
         if score > conf_thres:
-            print("Class ID = >>%d" % classId + "  score  =>>> %f" % score)
+            # print("Class ID = >>%d" % classId + "  score  =>>> %f" % score)
             x1 = bbox[1] * cols
             y1 = bbox[0] * rows
             x2 = bbox[3] * cols
@@ -148,7 +147,6 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
 
     for idx in range(len(detections_json_list)):
         neighbor_boxes = []
-
         neighbor_range = 101
         for neighbor_idx in range(1, neighbor_range):
             if idx + neighbor_idx < len(detections_json):
@@ -157,7 +155,6 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
         for box in neighbor_boxes:
             boxA = detections_json_list[idx]
             boxB = box
-
             iou, interArea, boxAArea, boxBArea = calculate_iou(detections_json[boxA], detections_json[boxB])
 
             if iou > iou_thres:
@@ -189,7 +186,7 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
 
     print("Number of boxes after filtering: " + str(len(detections_json.keys())))
 
-    print("Renaming bounding boxes")
+    print("Reindexing bounding boxes...")
     box_count = 0
     new_detections_json = {}
     for box in detections_json:
@@ -262,13 +259,13 @@ def sliding_windows(window_dim, tf_session=None):
             continue
 
         window_name = "window_" + str(global_var.x_coord) + "_" + str(global_var.y_coord)
+        anno_window = np.copy(window)
         window_image = Image.fromarray(window)
         window_width, window_height = window_image.size
 
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
-
-            window_image.save(os.path.join(opt.output, "sliding_windows", window_name + ".jpg"))
-
+            # window_image.save(os.path.join(opt.output, "sliding_windows", window_name + ".jpg"))
+            cv2.imwrite(os.path.join(opt.output, "sliding_windows", window_name + ".jpg"), window)
             print("Performing detection on " + window_name + ".")
 
             if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
@@ -326,6 +323,11 @@ def sliding_windows(window_dim, tf_session=None):
 
                     calculate_box_offset(output_json, window_name, box_name)
                     box_idx += 1
+
+                    # uncomment to save a copy of window with anno
+                    # cv2.rectangle(anno_window, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    # cv2.imwrite(os.path.join(opt.output, "sliding_windows", window_name + "_anno.jpg"), anno_window)
+                    # anno_window.save(os.path.join(opt.output, "sliding_windows", window_name + "_anno.jpg"))
 
             window_idx += 1
             cv2.waitKey(1)
@@ -475,7 +477,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument("--n_cpu", type=int, default=0, help="number of cpu threads to use during batch generation")
-    parser.add_argument("--checkpoint_model", type=str, help="path to checkpoint model")
     parser.add_argument("--x_stride", type=int, default=200, help="width stride of the sliding window in pixels")
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
 
@@ -492,12 +493,10 @@ if __name__ == "__main__":
     image_width, image_height = im.size
     image_width = int(round(image_width, -2))
     image_height = int(round(image_height, -2))
-    # print("Image width: " + str(image_width) + " image height: " + str(image_height))
 
     classes = load_classes(opt.class_path)
 
     if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
-
         from torch.utils.data import DataLoader
         from torchvision import datasets
         from torch.autograd import Variable
@@ -505,12 +504,12 @@ if __name__ == "__main__":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
         print("PyTorch model detected.")
+        print("Loaded PyTorch weights: " + os.path.basename(opt.weights_path) + ".")
+
         if opt.weights_path.endswith(".weights"):
-            # Load darknet weights
             print("Loaded the full weights with network architecture.")
             model.load_darknet_weights(opt.weights_path)
         else:
-            # Load checkpoint weights
             print("Loaded only the trained weights.")
             model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
 
@@ -544,7 +543,6 @@ if __name__ == "__main__":
             end_time = time.time()
             print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
 
-
     elif GetWeightsType() == "tensorflow":
         import tensorflow as tf
         print("Tensorflow weights detected.")
@@ -553,7 +551,6 @@ if __name__ == "__main__":
         [winW, winH] = [opt.window_size, opt.window_size]
         opt.x_stride = int(winW / 2)
         opt.y_stride = int(winH / 2)
-
         global_var.max_x = (image_width / opt.x_stride) - 1
         global_var.max_y = (image_height / opt.y_stride) - 1
 

@@ -6,7 +6,6 @@ from pyimagesearch.find_neighbors import *
 
 from PIL import Image
 from skimage.io import imread
-# from matplotlib.ticker import NullLocator
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
 
@@ -66,7 +65,7 @@ def detect_image_tensorflow(window, sess=None):
         score = float(out[1][0][i])
         bbox = [float(v) for v in out[2][0][i]]
         if score > conf_thres:
-            print("Class ID = >>%d" % classId + "  score  =>>> %f" % score)
+            # print("Class ID = >>%d" % classId + "  score  =>>> %f" % score)
             x1 = bbox[1] * cols
             y1 = bbox[0] * rows
             x2 = bbox[3] * cols
@@ -125,6 +124,20 @@ def SortDetections(output_path, detections):
 
     return sorted_detections_dict
 
+def ExportJsonToCSV(detection_json, output_path):
+
+    with open(os.path.join(output_path, "detections.csv"), 'a+') as detection:
+        for box in detection_json:
+            detection.write(box.replace("box", "") + "," + str(detection_json[box]["conf"]) + ","
+                            + str(detection_json[box]["center_x"]) + "," + str(detection_json[box]["center_y"]) + "\n")
+
+def ExportJsonToText(detection_json, output_path):
+    with open(os.path.join(output_path, "detections_filtered.txt"), 'a+') as detection:
+        for box in detection_json:
+            detection.write(box.replace("box", "") + " " + str(detection_json[box]["conf"]) + " " + str(detection_json[box]["x1"]) + " "
+                            + str(detection_json[box]["y1"]) + " " + str(detection_json[box]["x2"]) + " "
+                            + str(detection_json[box]["y2"]) + '\n')
+
 def filter_bounding_boxes_optimized(detections_json, iou_thres):
     deleted_boxes = []
     same_conf_boxes = []
@@ -174,7 +187,14 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
             del detections_json[box]
 
     print("Number of boxes after filtering: " + str(len(detections_json.keys())))
-    return detections_json
+    print("Reindexing bounding boxes...")
+    box_count = 0
+    new_detections_json = {}
+    for box in detections_json:
+        new_detections_json["box" + str(box_count)] = detections_json[box]
+        box_count += 1
+
+    return new_detections_json
 
 def calculate_box_offset(output_json, window, box):
     coords = get_tile_coordinates(window)
@@ -454,7 +474,6 @@ def CombineDetections(output_path, detection_paths, image_path):
         image = imread(output_image, plugin='pil')
         draw_bounding_boxes(detection, image, shrink_bbox)
         shrink_bbox = ~shrink_bbox
-
         cv2.imwrite(output_image, image)
 
 def GetWeightsType(weights_path):
@@ -485,7 +504,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument("--n_cpu", type=int, default=0, help="number of cpu threads to use during batch generation")
-    parser.add_argument("--checkpoint_model", type=str, help="path to checkpoint model")
     parser.add_argument("--x_stride", type=int, default=200, help="width stride of the sliding window in pixels")
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
 
@@ -522,17 +540,20 @@ if __name__ == "__main__":
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
             print("PyTorch model detected.")
-            if opt.weights_path.endswith(".weights"):
-                print("Loaded the full weights with network architecture.")
-                if not second_weight:
+
+            if not second_weight:
+                if opt.weights_path.endswith("weights"):
+                    print("Loaded the full weights with network architecture.")
                     model.load_darknet_weights(opt.weights_path)
                 else:
-                    model.load_darknet_weights(opt.second_weight)
-            else:
-                print("Loaded only the trained weights.")
-                if not second_weight:
+                    print("Loaded only the trained weights.")
                     model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
+            else:
+                if opt.second_weight.endswith("weights"):
+                    print("Loaded the full weights with network architecture.")
+                    model.load_darknet_weights(opt.second_weight)
                 else:
+                    print("Loaded only the trained weights.")
                     model.load_state_dict(torch.load(opt.second_weight, map_location=torch.device('cpu')))
 
             print("Weights: " + os.path.basename(opt.weights_path) + ".")
@@ -561,7 +582,12 @@ if __name__ == "__main__":
 
                 print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
                 start_time = time.time()
-                sliding_windows([winW, winH], opt.weights_path, output_path)
+
+                if not second_weight:
+                    sliding_windows([winW, winH], opt.weights_path, output_path)
+                else:
+                    sliding_windows([winW, winH], opt.second_weight, output_path)
+
                 end_time = time.time()
                 print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
 
@@ -595,11 +621,17 @@ if __name__ == "__main__":
             config = tf.ConfigProto(
                 gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
             )
+            config.gpu_options.allow_growth = True
 
             sess = tf.Session(config=config)
             sess.graph.as_default()
             tf.import_graph_def(graph_def, name='')
-            sliding_windows([winW, winH], opt.weights_path, output_path, sess)
+
+            if not second_weight:
+                sliding_windows([winW, winH], opt.weights_path, output_path, sess)
+            else:
+                sliding_windows([winW, winH], opt.second_weight, output_path, sess)
+
             sess.close()
             end_time = time.time()
             print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
@@ -623,6 +655,9 @@ if __name__ == "__main__":
         filtering_end = time.time()
 
         print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
+
+        ExportJsonToCSV(input_json, output_path)
+        ExportJsonToText(input_json, output_path)
 
         with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
             json.dump(input_json, img_json, indent=4)
