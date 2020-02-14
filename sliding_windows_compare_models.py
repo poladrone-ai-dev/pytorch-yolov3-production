@@ -20,6 +20,8 @@ import json
 import cv2
 import torch
 import shutil
+import threading
+import multiprocessing
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -252,7 +254,6 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 def sliding_windows(window_dim, weights, output_path, tf_session=None):
     image = imread(opt.image, plugin='pil') # specifies pil plugin, or the default one program searches is used (TIFF, etc...)
     cv2.namedWindow("output", cv2.WINDOW_NORMAL)
-    # output_path = opt.output
     window_idx = 0
     box_idx = 0
     output_json = {}
@@ -468,13 +469,14 @@ def CombineDetections(output_path, detection_paths, image_path):
     shrink_bbox = False
 
     for detection_json in detection_jsons:
-        with open(detection_json, 'r') as fp:
-            detection = json.load(fp)
+        if os.path.isfile(detection_json):
+            with open(detection_json, 'r') as fp:
+                detection = json.load(fp)
 
-        image = imread(output_image, plugin='pil')
-        draw_bounding_boxes(detection, image, shrink_bbox)
-        shrink_bbox = ~shrink_bbox
-        cv2.imwrite(output_image, image)
+            image = imread(output_image, plugin='pil')
+            draw_bounding_boxes(detection, image, shrink_bbox)
+            shrink_bbox = ~shrink_bbox
+            cv2.imwrite(output_image, image)
 
 def GetWeightsType(weights_path):
     if weights_path.endswith(".weights"):
@@ -525,6 +527,10 @@ if __name__ == "__main__":
     shrink_bbox = False
     second_weight = False
 
+    # sliding window threads
+    first_thread = None
+    second_thread = None
+
     for weight in weights:
         print("Performing detection on " + opt.image + " with " + os.path.basename(weight) + ".")
         if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
@@ -541,22 +547,29 @@ if __name__ == "__main__":
             model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
             print("PyTorch model detected.")
 
-            if not second_weight:
-                if opt.weights_path.endswith("weights"):
-                    print("Loaded the full weights with network architecture.")
-                    model.load_darknet_weights(opt.weights_path)
-                else:
-                    print("Loaded only the trained weights.")
-                    model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
+            if weight.endswith("weights"):
+                print("Loaded the full weights with network architecture.")
+                model.load_darknet_weights(weight)
             else:
-                if opt.second_weight.endswith("weights"):
-                    print("Loaded the full weights with network architecture.")
-                    model.load_darknet_weights(opt.second_weight)
-                else:
-                    print("Loaded only the trained weights.")
-                    model.load_state_dict(torch.load(opt.second_weight, map_location=torch.device('cpu')))
+                print("Loaded only the trained weights.")
+                model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
 
-            print("Weights: " + os.path.basename(opt.weights_path) + ".")
+            # if not second_weight:
+            #     if opt.weights_path.endswith("weights"):
+            #         print("Loaded the full weights with network architecture.")
+            #         model.load_darknet_weights(opt.weights_path)
+            #     else:
+            #         print("Loaded only the trained weights.")
+            #         model.load_state_dict(torch.load(opt.weights_path, map_location=torch.device('cpu')))
+            # else:
+            #     if opt.second_weight.endswith("weights"):
+            #         print("Loaded the full weights with network architecture.")
+            #         model.load_darknet_weights(opt.second_weight)
+            #     else:
+            #         print("Loaded only the trained weights.")
+            #         model.load_state_dict(torch.load(opt.second_weight, map_location=torch.device('cpu')))
+
+            print("Weights: " + os.path.basename(weight) + ".")
             print("Config: " + os.path.basename(opt.model_def) + ".")
 
             model.eval() # Set in evaluation mode
@@ -576,25 +589,29 @@ if __name__ == "__main__":
                 [winW, winH] = [opt.window_size, opt.window_size]
                 opt.x_stride = int(winW / 2)
                 opt.y_stride = int(winH / 2)
-
                 global_var.max_x = (image_width / opt.x_stride) - 1
                 global_var.max_y = (image_height / opt.y_stride) - 1
-
                 print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
                 start_time = time.time()
 
-                if not second_weight:
-                    sliding_windows([winW, winH], opt.weights_path, output_path)
-                else:
-                    sliding_windows([winW, winH], opt.second_weight, output_path)
+                first_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path)).start()
+
+                # if not second_weight:
+                #     # sliding_windows([winW, winH], opt.weights_path, output_path)
+                #     first_thread = threading.Thread(target=sliding_windows, args=([winW, winH], opt.weights_path, output_path)).start()
+                #     # first_thread = multiprocessing.Process(target=sliding_windows, args=([winW, winH], opt.weights_path, output_path, opt)).start()
+                # else:
+                #     # sliding_windows([winW, winH], opt.second_weight, output_path)
+                #     second_thread = threading.Thread(target=sliding_windows, args=([winW, winH], opt.second_weight, output_path)).start()
+                #     # second_thread = multiprocessing.Process(target=sliding_windows, args=([winW, winH], opt.second_weight, output_path, opt)).start()
 
                 end_time = time.time()
-                print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
+                print("Time elapsed for YOLO/PyTorch detection: " + str(end_time - start_time) + "s.")
 
         elif GetWeightsType(weight) == "tensorflow":
             import tensorflow as tf
             print("Tensorflow weights detected.")
-            print("Loaded tensorflow weights: " + os.path.basename(opt.weights_path) + ".")
+            print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
 
             output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(weight))[0])
             output_paths.append(output_path)
@@ -602,21 +619,24 @@ if __name__ == "__main__":
             [winW, winH] = [opt.window_size, opt.window_size]
             opt.x_stride = int(winW / 2)
             opt.y_stride = int(winH / 2)
-
             global_var.max_x = (image_width / opt.x_stride) - 1
             global_var.max_y = (image_height / opt.y_stride) - 1
 
             print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
             start_time = time.time()
 
-            if not second_weight:
-                with tf.gfile.FastGFile(opt.weights_path, 'rb') as f:
-                    graph_def = tf.GraphDef()
-                    graph_def.ParseFromString(f.read())
-            else:
-                with tf.gfile.FastGFile(opt.second_weight, 'rb') as f:
-                    graph_def = tf.GraphDef()
-                    graph_def.ParseFromString(f.read())
+            with tf.gfile.FastGFile(weight, 'rb') as f:
+                graph_def = tf.GraphDef()
+                graph_def.ParseFromString(f.read())
+
+            # if not second_weight:
+            #     with tf.gfile.FastGFile(opt.weights_path, 'rb') as f:
+            #         graph_def = tf.GraphDef()
+            #         graph_def.ParseFromString(f.read())
+            # else:
+            #     with tf.gfile.FastGFile(opt.second_weight, 'rb') as f:
+            #         graph_def = tf.GraphDef()
+            #         graph_def.ParseFromString(f.read())
 
             config = tf.ConfigProto(
                 gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
@@ -627,64 +647,81 @@ if __name__ == "__main__":
             sess.graph.as_default()
             tf.import_graph_def(graph_def, name='')
 
-            if not second_weight:
-                sliding_windows([winW, winH], opt.weights_path, output_path, sess)
-            else:
-                sliding_windows([winW, winH], opt.second_weight, output_path, sess)
+            first_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path, sess)).start()
 
-            sess.close()
+            # if not second_weight:
+            #     # sliding_windows([winW, winH], opt.weights_path, output_path, sess)
+            #     first_thread = threading.Thread(target=sliding_windows, args=([winW, winH], opt.weights_path, output_path, sess)).start()
+            #     # first_thread = multiprocessing.Process(target=sliding_windows, args=([winW, winH], opt.weights_path, output_path, opt, sess)).start()
+            # else:
+            #     # sliding_windows([winW, winH], opt.second_weight, output_path, sess)
+            #     second_thread = threading.Thread(target=sliding_windows, args=([winW, winH], opt.second_weight, output_path, sess)).start()
+            #     # second_thread = multiprocessing.Process(target=sliding_windows, args=([winW, winH], opt.second_weight, output_path, opt, sess)).start()
+
+            # sess.close()
             end_time = time.time()
             print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
-
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
 
-        with open(os.path.join(output_path, 'detection.json')) as json_file:
-            input_json = json.load(json_file)
+        if os.path.isfile(os.path.join(output_path, 'detection.json')):
+            with open(os.path.join(output_path, 'detection.json'), 'r') as json_file:
+                input_json = json.load(json_file)
 
-        image_before_filter = imread(opt.image, plugin='pil')
-        draw_bounding_boxes(input_json, image_before_filter)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"), image_before_filter)
-        input_json = SortDetections(output_path, input_json)
+            image_before_filter = imread(opt.image, plugin='pil')
+            draw_bounding_boxes(input_json, image_before_filter)
+            cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"), image_before_filter)
+            input_json = SortDetections(output_path, input_json)
 
-        iou_thres_range = [0.5]
-        filtering_start = time.time()
-        for iou_thres in iou_thres_range:
-            input_json = filter_bounding_boxes_optimized(input_json, iou_thres)
-        filtering_end = time.time()
+            iou_thres_range = [0.5]
+            filtering_start = time.time()
+            for iou_thres in iou_thres_range:
+                input_json = filter_bounding_boxes_optimized(input_json, iou_thres)
+            filtering_end = time.time()
 
-        print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
+            print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
 
-        ExportJsonToCSV(input_json, output_path)
-        ExportJsonToText(input_json, output_path)
+            ExportJsonToCSV(input_json, output_path)
+            ExportJsonToText(input_json, output_path)
 
-        with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
-            json.dump(input_json, img_json, indent=4)
+            with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
+                json.dump(input_json, img_json, indent=4)
 
-        image = imread(opt.image, plugin='pil')
-        draw_bounding_boxes(input_json, image, shrink_bbox=shrink_bbox)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), image)
+            image = imread(opt.image, plugin='pil')
+            draw_bounding_boxes(input_json, image, shrink_bbox=shrink_bbox)
+            cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), image)
 
-        image_circles = imread(opt.image, plugin='pil')
-        draw_circles(input_json, image_circles)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg"), image_circles)
+            image_circles = imread(opt.image, plugin='pil')
+            draw_circles(input_json, image_circles)
+            cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg"), image_circles)
 
-        global_var.x_offset = 0
-        global_var.y_offset = 0
-        global_var.x_coord = 0
-        global_var.y_coord = -1
-        shrink_bbox = True
-        second_weight = True
+            global_var.x_offset = 0
+            global_var.y_offset = 0
+            global_var.x_coord = 0
+            global_var.y_coord = -1
+            shrink_bbox = True
+            second_weight = True
+            # first_thread.join()
+
+        #end of loop
+
+    # print("Process first_thread is alive: {}".format(first_thread.pid))
+    # print("Process second_thread is alive: {}".format(second_thread.pid))
 
     combined_path = os.path.join(opt.output, "combined_detections")
+
     if os.path.isdir(combined_path):
         shutil.rmtree(combined_path)
+
     os.mkdir(combined_path)
     CombineDetections(combined_path, output_paths, opt.image)
 
     for output_path in output_paths:
-        shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"),
-                        os.path.join(combined_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"))
-        shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"),
-                        os.path.join(combined_path, os.path.basename(output_path) + "_detection.jpeg"))
+        if os.path.isfile(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg")):
+            shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"),
+                            os.path.join(combined_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"))
+
+        if os.path.isfile(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")):
+            shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"),
+                            os.path.join(combined_path, os.path.basename(output_path) + "_detection.jpeg"))
