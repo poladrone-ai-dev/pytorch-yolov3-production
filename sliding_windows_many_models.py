@@ -20,6 +20,7 @@ import json
 import cv2
 import torch
 import shutil
+import random
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -209,6 +210,9 @@ def calculate_box_offset(output_json, window, box):
     output_json[box]["y_offset"] = coords[0] * opt.y_stride
 
 def draw_bounding_boxes(output_json, image, shrink_bbox=False):
+
+    color = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
+
     for box in output_json:
         x1 = output_json[box]["x1"]
         y1 = output_json[box]["y1"]
@@ -220,17 +224,12 @@ def draw_bounding_boxes(output_json, image, shrink_bbox=False):
         conf = output_json[box]["conf"]
 
         if shrink_bbox:
-            x1 += int(0.1 * width)
-            y1 += int(0.1 * height)
-            x2 -= int(0.1 * width)
-            y2 -= int(0.1 * height)
+            x1 += int(0.2 * width)
+            y1 += int(0.2 * height)
+            x2 -= int(0.2 * width)
+            y2 -= int(0.2 * height)
 
-        # if not shrink_bbox:
-        #     cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        # else:
-        #     cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
-
-        cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
@@ -475,6 +474,7 @@ def CombineDetections(output_path, detection_paths, image_path):
         draw_bounding_boxes(detection, image, shrink_bbox)
         shrink_bbox = ~shrink_bbox
         cv2.imwrite(output_image, image)
+        # image.save(output_image)
 
 def GetWeightsType(weights_path):
     if weights_path.endswith(".weights"):
@@ -524,15 +524,20 @@ if __name__ == "__main__":
     with open(opt.weights_cfg, 'r') as weights_fp:
         for line in weights_fp:
             if line != "":
-                weights.append(line.replace("\n", ""))
-            if line.split(" ")[1].replace("\n", "").endswith(".cfg"):
-                configs.append(line.split(" ")[1].replace("\n", ""))
+                if len(line.split(" ")) > 1:
+                    weights.append(line.split(" ")[0])
+                else:
+                    weights.append(line.replace("\n", ""))
+            if len(line.split(" ")) > 1:
+                if line.split(" ")[1].replace("\n", "").endswith(".cfg"):
+                    configs.append(line.split(" ")[1].replace("\n", ""))
 
     output_paths = []
     shrink_bbox = False
 
     for weight in weights:
         print("Performing detection on " + opt.image + " with " + os.path.basename(weight) + ".")
+        print(weight)
         if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
 
             from torch.utils.data import DataLoader
@@ -555,7 +560,7 @@ if __name__ == "__main__":
                 sys.exit()
 
             print("PyTorch model detected.")
-            if opt.weights_path.endswith("weights"):
+            if weight.endswith("weights"):
                 print("Loaded the full weights with network architecture.")
                 model.load_darknet_weights(weight)
             else:
