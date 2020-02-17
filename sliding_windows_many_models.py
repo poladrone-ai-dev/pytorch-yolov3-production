@@ -21,6 +21,7 @@ import cv2
 import torch
 import shutil
 import random
+import threading
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -248,10 +249,49 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 
     return False
 
-def sliding_windows(window_dim, weights, output_path, tf_session=None):
+def GenerateDetections(output_path):
+    if os.path.isfile(os.path.join(output_path, 'detection.json')):
+        with open(os.path.join(output_path, 'detection.json'), 'r') as json_file:
+            input_json = json.load(json_file)
+
+        image_before_filter = imread(opt.image, plugin='pil')
+        draw_bounding_boxes(input_json, image_before_filter)
+        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"),
+                    image_before_filter)
+        input_json = SortDetections(output_path, input_json)
+
+        iou_thres_range = [0.5]
+        filtering_start = time.time()
+        for iou_thres in iou_thres_range:
+            input_json = filter_bounding_boxes_optimized(input_json, iou_thres)
+        filtering_end = time.time()
+
+        print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
+
+        ExportJsonToCSV(input_json, output_path)
+        ExportJsonToText(input_json, output_path)
+
+        with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
+            json.dump(input_json, img_json, indent=4)
+
+        draw_box_start = time.time()
+        image = imread(opt.image, plugin='pil')
+        draw_bounding_boxes(input_json, image, shrink_bbox=shrink_bbox)
+        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), image)
+        draw_box_end = time.time()
+
+        draw_circles_start = time.time()
+        image_circles = imread(opt.image, plugin='pil')
+        draw_circles(input_json, image_circles)
+        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg"), image_circles)
+        draw_circles_end = time.time()
+
+        print("Time taken to draw bboxes: " + str(draw_box_end - draw_box_start))
+        print("Time taken to draw circles: " + str(draw_circles_end - draw_circles_start))
+
+def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_session=None):
     image = imread(opt.image, plugin='pil') # specifies pil plugin, or the default one program searches is used (TIFF, etc...)
     cv2.namedWindow("output", cv2.WINDOW_NORMAL)
-    # output_path = opt.output
     window_idx = 0
     box_idx = 0
     output_json = {}
@@ -266,19 +306,16 @@ def sliding_windows(window_dim, weights, output_path, tf_session=None):
         os.mkdir(os.path.join(output_path, "sliding_windows"))
 
     #for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
-    for (x, y, window) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride, windowSize=[winW, winH]):
+    for (x, y, window, x_coord, y_coord) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride,
+                                                           windowSize=[winW, winH], x_coord=x_coord, y_coord=y_coord):
 
-        if window is None:
-            continue
-
-        window_name = "window_" + str(global_var.x_coord) + "_" + str(global_var.y_coord)
+        window_name = "window_" + str(x_coord) + "_" + str(y_coord)
         window_image = Image.fromarray(window)
         window_width, window_height = window_image.size
 
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
 
             window_image.save(os.path.join(output_path, "sliding_windows", window_name + ".jpg"))
-
             print("Performing detection on " + window_name + ".")
 
             if GetWeightsType(weights) == "yolo" or GetWeightsType(weights) == "pytorch":
@@ -323,8 +360,8 @@ def sliding_windows(window_dim, weights, output_path, tf_session=None):
                                 "center_y": round(center_y),
                                 "window_width": window_width,
                                 "window_height": window_height,
-                                "x_offset": global_var.x_offset,
-                                "y_offset": global_var.y_offset,
+                                "x_offset": x_offset,
+                                "y_offset": y_offset,
                                 "scaling": 1,
                                 "conf": round(conf.item(), 3),
                                 "cls_conf": round(cls_conf.data.tolist(), 3),
@@ -344,6 +381,8 @@ def sliding_windows(window_dim, weights, output_path, tf_session=None):
     cv2.imwrite(os.path.join(output_path, "output.jpeg"), image)
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
         json.dump(output_json, img_json, indent=4)
+
+    GenerateDetections(output_path)
 
 def dataloader(window_dim):
     output_json = {}
@@ -506,7 +545,13 @@ if __name__ == "__main__":
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
 
     Image.MAX_IMAGE_PIXELS = 20000000000
+    shrink_bbox = False
+    weights = []
+    configs = []
+    threads = []
+    output_paths = []
 
+    runtime_start = time.time()
     opt = parser.parse_args()
     if os.path.isdir(opt.output):
         shutil.rmtree(opt.output)
@@ -516,11 +561,8 @@ if __name__ == "__main__":
     image_width, image_height = im.size
     image_width = int(round(image_width, -2))
     image_height = int(round(image_height, -2))
-
     classes = load_classes(opt.class_path)
 
-    weights = []
-    configs = []
     with open(opt.weights_cfg, 'r') as weights_fp:
         for line in weights_fp:
             if line != "":
@@ -532,12 +574,13 @@ if __name__ == "__main__":
                 if line.split(" ")[1].replace("\n", "").endswith(".cfg"):
                     configs.append(line.split(" ")[1].replace("\n", ""))
 
-    output_paths = []
-    shrink_bbox = False
-
     for weight in weights:
+        x_offset = 0
+        y_offset = 0
+        x_coord = 0
+        y_coord = -1
+
         print("Performing detection on " + opt.image + " with " + os.path.basename(weight) + ".")
-        print(weight)
         if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
 
             from torch.utils.data import DataLoader
@@ -594,10 +637,12 @@ if __name__ == "__main__":
                 print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
                 start_time = time.time()
 
-                sliding_windows([winW, winH], weight, output_path)
+                child_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path, x_coord, y_coord))
+                child_thread.start()
+                threads.append(child_thread)
 
                 end_time = time.time()
-                print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
+                # print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
 
         elif GetWeightsType(weight) == "tensorflow":
             import tensorflow as tf
@@ -629,55 +674,31 @@ if __name__ == "__main__":
             sess = tf.Session(config=config)
             sess.graph.as_default()
             tf.import_graph_def(graph_def, name='')
-            sliding_windows([winW, winH], weight, output_path, sess)
-            sess.close()
+
+            child_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path, x_coord, y_coord, sess))
+            child_thread.start()
+            threads.append(child_thread)
+
+            # sess.close()
             end_time = time.time()
-            print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
+            # print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
 
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
 
-        with open(os.path.join(output_path, 'detection.json')) as json_file:
-            input_json = json.load(json_file)
-
-        image_before_filter = imread(opt.image, plugin='pil')
-        draw_bounding_boxes(input_json, image_before_filter)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"), image_before_filter)
-        input_json = SortDetections(output_path, input_json)
-
-        iou_thres_range = [0.5]
-        filtering_start = time.time()
-        for iou_thres in iou_thres_range:
-            input_json = filter_bounding_boxes_optimized(input_json, iou_thres)
-        filtering_end = time.time()
-
-        print("Bounding box filtering elapsed time: " + str(filtering_end - filtering_start))
-
-        ExportJsonToCSV(input_json, output_path)
-        ExportJsonToText(input_json, output_path)
-
-        with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
-            json.dump(input_json, img_json, indent=4)
-
-        image = imread(opt.image, plugin='pil')
-        draw_bounding_boxes(input_json, image, shrink_bbox=shrink_bbox)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), image)
-
-        image_circles = imread(opt.image, plugin='pil')
-        draw_circles(input_json, image_circles)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg"), image_circles)
-
-        global_var.x_offset = 0
-        global_var.y_offset = 0
-        global_var.x_coord = 0
-        global_var.y_coord = -1
         shrink_bbox = True
 
+    for thread in threads:
+        thread.join()
+
     combined_path = os.path.join(opt.output, "combined_detections")
+
     if os.path.isdir(combined_path):
         shutil.rmtree(combined_path)
+
     os.mkdir(combined_path)
+
     CombineDetections(combined_path, output_paths, opt.image)
 
     for output_path in output_paths:
@@ -685,3 +706,6 @@ if __name__ == "__main__":
                         os.path.join(combined_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"))
         shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"),
                         os.path.join(combined_path, os.path.basename(output_path) + "_detection.jpeg"))
+
+    runtime_end = time.time()
+    print("Total runtime: " + str(runtime_end - runtime_start))
