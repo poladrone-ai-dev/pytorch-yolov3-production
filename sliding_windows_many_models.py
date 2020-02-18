@@ -121,7 +121,7 @@ def SortDetections(output_path, detections):
         for kvp in sorted_detections[i].values():
             sorted_detections_dict[key] = kvp
 
-    with open(os.path.join(output_path, "detections_sorted.json"), 'w') as json_fp:
+    with open(os.path.join(output_path, "detection_sorted.json"), 'w') as json_fp:
         json.dump(sorted_detections_dict, json_fp, indent=4)
 
     return sorted_detections_dict
@@ -149,7 +149,6 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
 
     for idx in range(len(detections_json_list)):
         neighbor_boxes = []
-
         neighbor_range = 101
         for neighbor_idx in range(1, neighbor_range):
             if idx + neighbor_idx < len(detections_json):
@@ -189,7 +188,7 @@ def filter_bounding_boxes_optimized(detections_json, iou_thres):
             del detections_json[box]
 
     print("Number of boxes after filtering: " + str(len(detections_json.keys())))
-    print("Reindexing bounding boxes...")
+    # print("Reindexing bounding boxes...")
     box_count = 0
     new_detections_json = {}
     for box in detections_json:
@@ -210,9 +209,7 @@ def calculate_box_offset(output_json, window, box):
     output_json[box]["center_y"] += coords[0] * opt.y_stride
     output_json[box]["y_offset"] = coords[0] * opt.y_stride
 
-def draw_bounding_boxes(output_json, image, shrink_bbox=False):
-
-    color = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
+def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False, color_dict=None):
 
     for box in output_json:
         x1 = output_json[box]["x1"]
@@ -224,6 +221,11 @@ def draw_bounding_boxes(output_json, image, shrink_bbox=False):
         cls_pred = output_json[box]["cls_pred"]
         conf = output_json[box]["conf"]
 
+        if color_dict is not None:
+            color = color_dict[output_json[box]["model"]]
+        else:
+            color = (255, 0, 0)
+
         if shrink_bbox:
             x1 += int(0.2 * width)
             y1 += int(0.2 * height)
@@ -234,11 +236,15 @@ def draw_bounding_boxes(output_json, image, shrink_bbox=False):
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
-def draw_circles(output_json, image):
+    cv2.imwrite(output_path, image)
+
+def draw_circles(output_json, image, output_path):
     for box in output_json:
         center_x = output_json[box]["center_x"]
         center_y = output_json[box]["center_y"]
         cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
+
+    cv2.imwrite(output_path, image)
 
 def IsBackgroundMostlyBlack(window, winW, winH):
     try:
@@ -250,14 +256,19 @@ def IsBackgroundMostlyBlack(window, winW, winH):
     return False
 
 def GenerateDetections(output_path):
+
+    threads = []
+
     if os.path.isfile(os.path.join(output_path, 'detection.json')):
         with open(os.path.join(output_path, 'detection.json'), 'r') as json_file:
             input_json = json.load(json_file)
 
         image_before_filter = imread(opt.image, plugin='pil')
-        draw_bounding_boxes(input_json, image_before_filter)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"),
-                    image_before_filter)
+        before_filter_thread = threading.Thread(target=draw_bounding_boxes,
+                                                args=[input_json, image_before_filter, os.path.join(output_path,
+                                                os.path.basename(output_path) + "_detection_before_filter.jpeg")])
+        before_filter_thread.start()
+        threads.append(before_filter_thread)
         input_json = SortDetections(output_path, input_json)
 
         iou_thres_range = [0.5]
@@ -276,18 +287,23 @@ def GenerateDetections(output_path):
 
         draw_box_start = time.time()
         image = imread(opt.image, plugin='pil')
-        draw_bounding_boxes(input_json, image, shrink_bbox=shrink_bbox)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), image)
+        box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image, os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")])
+        box_thread.start()
         draw_box_end = time.time()
 
         draw_circles_start = time.time()
         image_circles = imread(opt.image, plugin='pil')
-        draw_circles(input_json, image_circles)
-        cv2.imwrite(os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg"), image_circles)
+        circles_thread = threading.Thread(target=draw_circles, args=[input_json, image_circles, os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg")])
+        circles_thread.start()
         draw_circles_end = time.time()
 
-        print("Time taken to draw bboxes: " + str(draw_box_end - draw_box_start))
-        print("Time taken to draw circles: " + str(draw_circles_end - draw_circles_start))
+    for _thread in threads:
+        _thread.join()
+
+    # print("Time taken to draw bboxes: " + str(draw_box_end - draw_box_start))
+    # print("Time taken to draw circles: " + str(draw_circles_end - draw_circles_start))
+
+    return len(input_json)
 
 def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_session=None):
     image = imread(opt.image, plugin='pil') # specifies pil plugin, or the default one program searches is used (TIFF, etc...)
@@ -308,7 +324,6 @@ def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_sessi
     #for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
     for (x, y, window, x_coord, y_coord) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride,
                                                            windowSize=[winW, winH], x_coord=x_coord, y_coord=y_coord):
-
         window_name = "window_" + str(x_coord) + "_" + str(y_coord)
         window_image = Image.fromarray(window)
         window_width, window_height = window_image.size
@@ -365,7 +380,8 @@ def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_sessi
                                 "scaling": 1,
                                 "conf": round(conf.item(), 3),
                                 "cls_conf": round(cls_conf.data.tolist(), 3),
-                                "cls_pred": classes[int(cls_pred)]
+                                "cls_pred": classes[int(cls_pred)],
+                                "model": weights
                             }
 
                     fp.write(classes[int(cls_pred)] + " " + str(round(cls_conf.data.tolist(), 3)) + " " + str(round(x1.item()))
@@ -378,142 +394,43 @@ def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_sessi
             cv2.waitKey(1)
 
     fp.close()
-    cv2.imwrite(os.path.join(output_path, "output.jpeg"), image)
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
         json.dump(output_json, img_json, indent=4)
 
     GenerateDetections(output_path)
 
-def dataloader(window_dim):
-    output_json = {}
-    [winW, winH] = window_dim
-    window_idx = 0
-    output_path = opt.output
-    box_idx = 0
-
-    image_path = os.path.dirname(opt.image)
-    dataloader = DataLoader(
-        ImageFolder(image_path, img_size=opt.img_size),
-        batch_size=opt.batch_size,
-        shuffle=False,
-        num_workers=opt.n_cpu,
-    )
-
-    imgs = []  # Stores image paths
-    img_detections = []  # Stores detections for each image index
-
-    if os.path.exists(os.path.join(output_path, "detections.txt")):
-        os.remove(os.path.join(output_path, "detections.txt"))
-
-    fp = open(os.path.join(output_path, "detections.txt"), "a")
-
-    for batch_i, (img_paths, input_imgs) in enumerate(dataloader):
-        if os.path.basename(opt.image) == os.path.basename(img_paths[0]):
-            input_imgs = Variable(input_imgs.type(Tensor))
-
-            with torch.no_grad():
-                detections = model(input_imgs)
-                detections = non_max_suppression(detections, 0.8, 0.4)
-
-            imgs.extend(img_paths)
-            img_detections.extend(detections)
-
-    cmap = plt.get_cmap("tab20b")
-    colors = [cmap(i) for i in np.linspace(0, 1, 20)]
-
-    for img_i, (path, detections) in enumerate(zip(imgs, img_detections)):
-
-        im = Image.open(path)
-        image_width, image_height = im.size
-        img = np.array(Image.open(path))
-
-        # Draw bounding boxes and labels of detections
-        if detections is not None:
-            # Rescale boxes to original image
-            detections = rescale_boxes(detections, opt.img_size, img.shape[:2])
-
-            unique_labels = detections[:, -1].cpu().unique()
-            n_cls_preds = len(unique_labels)
-            bbox_colors = random.sample(colors, n_cls_preds)
-            # box_idx = 0
-            for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                if classes[int(cls_pred)] != "palm0":
-                    # if True:
-                    print("\t+ Label: %s, Conf: %.5f" % (classes[int(cls_pred)], cls_conf.item()))
-
-                    if x1 < 0:
-                        x1 = torch.tensor(0)
-
-                    if y1 < 0:
-                        y1 = torch.tensor(0)
-
-                    if x2 > im.width:
-                        x2 = torch.tensor(im.width)
-
-                    if y2 > im.height:
-                        y2 = torch.tensor(im.height)
-
-                    box_w = x2 - x1
-                    box_h = y2 - y1
-
-                    center_x = ((x1.item() + x2.item()) / 2)
-                    center_y = ((y1.item() + y2.item()) / 2)
-
-                    box_idx += 1
-                    output_json["window0"] = {}
-                    output_json["window0"]["box" + str(box_idx)] = {
-                        "x1": round(x1.item()),
-                        "y1": round(y1.item()),
-                        "x2": round(x2.item()),
-                        "y2": round(y2.item()),
-                        "width": round(box_w.item()),
-                        "height": round(box_h.item()),
-                        "conf": round(conf.item(), 3),
-                        "center_x": round(center_x),
-                        "center_y": round(center_y),
-                        "cls_conf": round(cls_conf.data.tolist(), 3),
-                        "cls_pred": classes[int(cls_pred)]
-                    }
-
-                    color = bbox_colors[int(np.where(unique_labels == int(cls_pred))[0])]
-
-                    # Create a Rectangle patch
-                    bbox = patches.Rectangle((x1, y1), box_w, box_h, linewidth=2, edgecolor=color, facecolor="none")
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (255, 255, 255), 2)
-
-                    cv2.imwrite(os.path.join(opt.output,
-                                             os.path.basename(path)[:-4] + ".jpg"), img)
-
-                    cv2.putText(img, classes[int(cls_pred)], (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, \
-                                1.0, (0, 0, 0), lineType=cv2.LINE_AA)
-                    cv2.putText(img, os.path.basename(path), (0, int(im.height / 2)), \
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), lineType=cv2.LINE_AA)
-
-                    fp.write(str(classes[int(cls_pred)]) + " " + str(conf.item()).replace(str(conf)[0], '')
-                             + " " + str(int(x1.item())) + " " + str(int(y1.item())) + " "
-                             + str(int(box_w.item())) + " " + str(int(box_h.item())) + '\n')
-
-    fp.close()
-
-    with open(os.path.join(output_path, "detection.json"), "a") as img_json:
-        json.dump(output_json, img_json, indent=4)
-
-def CombineDetections(output_path, detection_paths, image_path):
+def CombineDetections(output_path, detection_paths):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
-    output_image = os.path.join(output_path, os.path.basename(image_path))
-
-    shutil.copyfile(image_path, output_image)
-    shrink_bbox = False
+    combined_json = {}
+    box_idx = 0
 
     for detection_json in detection_jsons:
         with open(detection_json, 'r') as fp:
-            detection = json.load(fp)
+            detections = json.load(fp)
 
-        image = imread(output_image, plugin='pil')
-        draw_bounding_boxes(detection, image, shrink_bbox)
-        shrink_bbox = ~shrink_bbox
-        cv2.imwrite(output_image, image)
-        # image.save(output_image)
+        for box in detections:
+            combined_json["box" + str(box_idx)] = detections[box]
+            box_idx += 1
+
+    iou_thres = [0.5]
+
+    combined_json = SortDetections(output_path, combined_json)
+
+    for iou in iou_thres:
+        filter_bounding_boxes_optimized(combined_json, iou)
+
+    with open(os.path.join(output_path, "detection.json"), 'w') as out_fp:
+        json.dump(combined_json, out_fp, indent=4)
+
+def DrawCombineDetections(output_path, detection_path, image_path, color_dict):
+    output_image_path = os.path.join(output_path, os.path.basename(image_path))
+    shutil.copyfile(image_path, output_image_path)
+
+    with open(detection_path, 'r') as fp:
+        detection = json.load(fp)
+
+    image = imread(os.path.abspath(image_path), plugin='pil')
+    draw_bounding_boxes(detection, image, output_image_path, color_dict=color_dict)
 
 def GetWeightsType(weights_path):
     if weights_path.endswith(".weights"):
@@ -527,9 +444,22 @@ def GetWeightsType(weights_path):
 
     return None
 
+def ReadConfig(weights_cfg, weights, configs):
+    with open(weights_cfg, 'r') as weights_fp:
+        for line in weights_fp:
+            if line != "":
+                if len(line.split(" ")) > 1:
+                    weights.append(line.split(" ")[0])
+                else:
+                    weights.append(line.replace("\n", ""))
+            if len(line.split(" ")) > 1:
+                if line.split(" ")[1].replace("\n", "").endswith(".cfg"):
+                    configs.append(line.split(" ")[1].replace("\n", ""))
+
+    return weights, configs
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--weights_cfg", type=str, required=True, help="path to trained weights")
     parser.add_argument("--class_path", type=str, required=True, help="path to class label file")
     parser.add_argument("--image", type=str, required=True, help="the image to apply sliding windows on")
@@ -550,6 +480,7 @@ if __name__ == "__main__":
     configs = []
     threads = []
     output_paths = []
+    color_dict = {}
 
     runtime_start = time.time()
     opt = parser.parse_args()
@@ -562,17 +493,7 @@ if __name__ == "__main__":
     image_width = int(round(image_width, -2))
     image_height = int(round(image_height, -2))
     classes = load_classes(opt.class_path)
-
-    with open(opt.weights_cfg, 'r') as weights_fp:
-        for line in weights_fp:
-            if line != "":
-                if len(line.split(" ")) > 1:
-                    weights.append(line.split(" ")[0])
-                else:
-                    weights.append(line.replace("\n", ""))
-            if len(line.split(" ")) > 1:
-                if line.split(" ")[1].replace("\n", "").endswith(".cfg"):
-                    configs.append(line.split(" ")[1].replace("\n", ""))
+    weights, configs = ReadConfig(opt.weights_cfg, weights, configs)
 
     for weight in weights:
         x_offset = 0
@@ -586,6 +507,8 @@ if __name__ == "__main__":
             from torch.utils.data import DataLoader
             from torchvision import datasets
             from torch.autograd import Variable
+
+            color_dict[weight] = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
 
             output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(weight))[0])
             output_paths.append(output_path)
@@ -618,36 +541,23 @@ if __name__ == "__main__":
             classes = load_classes(opt.class_path)  # Extracts class labels from file
             Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
-            if image_width <= 500 and image_height <= 500:
-                [winW, winH] = [230, 230]
-                opt.x_stride = int(winW / 2)
-                opt.y_stride = int(winH / 2)
-                dataloader([winW, winH])
-                global_var.x_offset = -winW
-                global_var.y_offset = -winH
+            [winW, winH] = [opt.window_size, opt.window_size]
+            opt.x_stride = int(winW / 2)
+            opt.y_stride = int(winH / 2)
 
-            else:
-                [winW, winH] = [opt.window_size, opt.window_size]
-                opt.x_stride = int(winW / 2)
-                opt.y_stride = int(winH / 2)
+            global_var.max_x = (image_width / opt.x_stride) - 1
+            global_var.max_y = (image_height / opt.y_stride) - 1
 
-                global_var.max_x = (image_width / opt.x_stride) - 1
-                global_var.max_y = (image_height / opt.y_stride) - 1
-
-                print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
-                start_time = time.time()
-
-                child_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path, x_coord, y_coord))
-                child_thread.start()
-                threads.append(child_thread)
-
-                end_time = time.time()
-                # print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
+            print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
+            child_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path, x_coord, y_coord))
+            child_thread.start()
+            threads.append(child_thread)
 
         elif GetWeightsType(weight) == "tensorflow":
             import tensorflow as tf
             print("Tensorflow weights detected.")
             print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
+            color_dict[weight] = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
 
             output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(weight))[0])
             output_paths.append(output_path)
@@ -660,7 +570,6 @@ if __name__ == "__main__":
             global_var.max_y = (image_height / opt.y_stride) - 1
 
             print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
-            start_time = time.time()
 
             with tf.gfile.FastGFile(weight, 'rb') as f:
                 graph_def = tf.GraphDef()
@@ -678,11 +587,6 @@ if __name__ == "__main__":
             child_thread = threading.Thread(target=sliding_windows, args=([winW, winH], weight, output_path, x_coord, y_coord, sess))
             child_thread.start()
             threads.append(child_thread)
-
-            # sess.close()
-            end_time = time.time()
-            # print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
-
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
@@ -696,16 +600,19 @@ if __name__ == "__main__":
 
     if os.path.isdir(combined_path):
         shutil.rmtree(combined_path)
-
     os.mkdir(combined_path)
 
-    CombineDetections(combined_path, output_paths, opt.image)
+    CombineDetections(combined_path, output_paths)
+    combine_start = time.time()
+    DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image, color_dict)
+    combine_end = time.time()
 
-    for output_path in output_paths:
-        shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"),
-                        os.path.join(combined_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"))
-        shutil.copyfile(os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"),
-                        os.path.join(combined_path, os.path.basename(output_path) + "_detection.jpeg"))
+    for path in output_paths:
+        json_name = os.path.join(path, "detection_filtered.json")
+        with open(json_name, 'r') as json_fp:
+            detections = json.load(json_fp)
+        print(os.path.basename(path) + " tree count: " + str(len(detections)))
 
+    print("Time taken to combine results: " + str(combine_end - combine_start))
     runtime_end = time.time()
     print("Total runtime: " + str(runtime_end - runtime_start))
