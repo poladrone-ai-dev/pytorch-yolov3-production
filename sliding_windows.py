@@ -6,6 +6,7 @@ from pyimagesearch.find_neighbors import *
 
 from PIL import Image
 from skimage.io import imread
+from skimage import io
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
 
@@ -20,6 +21,7 @@ import json
 import cv2
 import torch
 import shutil
+import copy
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -207,7 +209,7 @@ def calculate_box_offset(output_json, window, box):
     output_json[box]["center_y"] += coords[0] * opt.y_stride
     output_json[box]["y_offset"] = coords[0] * opt.y_stride
 
-def draw_bounding_boxes(output_json, image):
+def draw_bounding_boxes(output_json, image, output_path):
     for box in output_json:
         x1 = output_json[box]["x1"]
         y1 = output_json[box]["y1"]
@@ -220,11 +222,14 @@ def draw_bounding_boxes(output_json, image):
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
-def draw_circles(output_json, image):
+    io.imsave(output_path, image)
+
+def draw_circles(output_json, image, output_path):
     for box in output_json:
         center_x = output_json[box]["center_x"]
         center_y = output_json[box]["center_y"]
         cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
+    io.imsave(output_path, image)
 
 def IsBackgroundMostlyBlack(window, winW, winH):
     try:
@@ -235,10 +240,10 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 
     return False
 
-def sliding_windows(window_dim, tf_session=None):
+def sliding_windows(window_dim, output_path, x_coord, y_coord, tf_session=None):
     image = imread(opt.image, plugin='pil') # specifies pil plugin, or the default one program searches is used (TIFF, etc...)
     cv2.namedWindow("output", cv2.WINDOW_NORMAL)
-    output_path = opt.output
+
     window_idx = 0
     box_idx = 0
     output_json = {}
@@ -253,12 +258,10 @@ def sliding_windows(window_dim, tf_session=None):
         os.mkdir(os.path.join(opt.output, "sliding_windows"))
 
     #for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
-    for (x, y, window) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride, windowSize=[winW, winH]):
+    for (x, y, window, x_coord, y_coord) in sliding_window(image, x_stepSize=opt.x_stride, y_stepSize=opt.y_stride,
+                                                           windowSize=[winW, winH], x_coord=x_coord, y_coord=y_coord):
 
-        if window is None:
-            continue
-
-        window_name = "window_" + str(global_var.x_coord) + "_" + str(global_var.y_coord)
+        window_name = "window_" + str(x_coord) + "_" + str(y_coord)
         anno_window = np.copy(window)
         window_image = Image.fromarray(window)
         window_width, window_height = window_image.size
@@ -310,8 +313,8 @@ def sliding_windows(window_dim, tf_session=None):
                                 "center_y": round(center_y),
                                 "window_width": window_width,
                                 "window_height": window_height,
-                                "x_offset": global_var.x_offset,
-                                "y_offset": global_var.y_offset,
+                                "x_offset": x_offset,
+                                "y_offset": y_offset,
                                 "scaling": 1,
                                 "conf": round(conf.item(), 3),
                                 "cls_conf": round(cls_conf.data.tolist(), 3),
@@ -333,7 +336,7 @@ def sliding_windows(window_dim, tf_session=None):
             cv2.waitKey(1)
 
     fp.close()
-    cv2.imwrite(os.path.join(output_path, "output.jpeg"), image)
+    # cv2.imwrite(os.path.join(output_path, "output.jpeg"), image)
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
         json.dump(output_json, img_json, indent=4)
 
@@ -496,6 +499,13 @@ if __name__ == "__main__":
 
     classes = load_classes(opt.class_path)
 
+    x_offset = 0
+    y_offset = 0
+    x_coord = 0
+    y_coord = -1
+
+    runtime_start = time.time()
+
     if GetWeightsType() == "yolo" or GetWeightsType() == "pytorch":
         from torch.utils.data import DataLoader
         from torchvision import datasets
@@ -539,7 +549,7 @@ if __name__ == "__main__":
 
             print("Running sliding windows on " + opt.image + ". Window dimension: [" + str(winW) + ", " + str(winH) + "]")
             start_time = time.time()
-            sliding_windows([winW, winH])
+            sliding_windows([winW, winH], opt.output, x_coord, y_coord)
             end_time = time.time()
             print("Time elapsed for YOLO/Pytorch detection: " + str(end_time - start_time) + "s.")
 
@@ -569,7 +579,7 @@ if __name__ == "__main__":
         sess = tf.Session(config=config)
         sess.graph.as_default()
         tf.import_graph_def(graph_def, name='')
-        sliding_windows([winW, winH], sess)
+        sliding_windows([winW, winH], opt.output, x_coord, y_coord, sess)
         sess.close()
         end_time = time.time()
         print("Time elapsed for Tensorflow detection: " + str(end_time - start_time) + "s.")
@@ -583,9 +593,11 @@ if __name__ == "__main__":
     with open(os.path.join(output_path, 'detection.json')) as json_file:
         input_json = json.load(json_file)
 
-    image_before_filter = imread(opt.image, plugin='pil')
-    draw_bounding_boxes(input_json, image_before_filter)
-    cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
+    im = np.array(im)
+
+    image_before_filter = copy.deepcopy(im)
+    draw_bounding_boxes(input_json, image_before_filter, os.path.join(output_path, "detection_before_filter.jpeg"))
+    # cv2.imwrite(os.path.join(output_path, "detection_before_filter.jpeg"), image_before_filter)
 
     input_json = SortDetections(input_json)
 
@@ -605,16 +617,19 @@ if __name__ == "__main__":
         json.dump(input_json, img_json, indent=4)
 
     write_boxes_start = time.time()
-    image = imread(opt.image, plugin='pil')
-    draw_bounding_boxes(input_json, image)
-    cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
+    image_detect = copy.deepcopy(im)
+    draw_bounding_boxes(input_json, image_detect, os.path.join(output_path, "detection.jpeg"))
+    # cv2.imwrite(os.path.join(output_path, "detection.jpeg"), image)
     write_boxes_end = time.time()
 
     write_circles_start = time.time()
-    image_circles = imread(opt.image, plugin='pil')
-    draw_circles(input_json, image_circles)
-    cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
+    image_circles = copy.deepcopy(im)
+    draw_circles(input_json, image_circles, os.path.join(output_path, "detection_circles.jpeg"))
+    # cv2.imwrite(os.path.join(output_path, "detection_circles.jpeg"), image_circles)
     write_circles_end = time.time()
+
+    runtime_end = time.time()
 
     print("Writing boxes elapsed time: " + str(write_boxes_end - write_boxes_start) + "s.")
     print("Write circles elapsed time: " + str(write_circles_end - write_circles_start) + "s.")
+    print("Total time elapsed: " + str(runtime_end - runtime_start))

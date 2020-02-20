@@ -8,7 +8,7 @@ from PIL import Image
 from skimage.io import imread
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
-
+from skimage import io
 import pyimagesearch.global_var as global_var
 
 import os
@@ -22,6 +22,7 @@ import torch
 import shutil
 import random
 import threading
+import copy
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -236,7 +237,8 @@ def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False, colo
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
-    cv2.imwrite(output_path, image)
+    # cv2.imwrite(output_path, image)
+    io.imsave(output_path, image)
 
 def draw_circles(output_json, image, output_path):
     for box in output_json:
@@ -244,7 +246,8 @@ def draw_circles(output_json, image, output_path):
         center_y = output_json[box]["center_y"]
         cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
 
-    cv2.imwrite(output_path, image)
+    # cv2.imwrite(output_path, image)
+    io.imsave(output_path, image)
 
 def IsBackgroundMostlyBlack(window, winW, winH):
     try:
@@ -255,15 +258,14 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 
     return False
 
-def GenerateDetections(output_path):
+def GenerateDetections(image, output_path):
 
     threads = []
-
     if os.path.isfile(os.path.join(output_path, 'detection.json')):
         with open(os.path.join(output_path, 'detection.json'), 'r') as json_file:
             input_json = json.load(json_file)
 
-        image_before_filter = imread(opt.image, plugin='pil')
+        image_before_filter = copy.deepcopy(image)
         before_filter_thread = threading.Thread(target=draw_bounding_boxes,
                                                 args=[input_json, image_before_filter, os.path.join(output_path,
                                                 os.path.basename(output_path) + "_detection_before_filter.jpeg")])
@@ -286,13 +288,13 @@ def GenerateDetections(output_path):
             json.dump(input_json, img_json, indent=4)
 
         draw_box_start = time.time()
-        image = imread(opt.image, plugin='pil')
-        box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image, os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")])
+        image_detect = copy.deepcopy(image)
+        box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image_detect, os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")])
         box_thread.start()
         draw_box_end = time.time()
 
         draw_circles_start = time.time()
-        image_circles = imread(opt.image, plugin='pil')
+        image_circles = copy.deepcopy(image)
         circles_thread = threading.Thread(target=draw_circles, args=[input_json, image_circles, os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg")])
         circles_thread.start()
         draw_circles_end = time.time()
@@ -396,7 +398,8 @@ def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_sessi
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
         json.dump(output_json, img_json, indent=4)
 
-    GenerateDetections(output_path)
+    image = np.array(image)
+    GenerateDetections(image, output_path)
 
 def CombineDetections(output_path, detection_paths):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
