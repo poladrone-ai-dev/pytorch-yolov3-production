@@ -307,7 +307,6 @@ def GenerateDetections(output_path):
 
 def sliding_windows(window_dim, weights, output_path, x_coord, y_coord, tf_session=None):
     image = imread(opt.image, plugin='pil') # specifies pil plugin, or the default one program searches is used (TIFF, etc...)
-    cv2.namedWindow("output", cv2.WINDOW_NORMAL)
     window_idx = 0
     box_idx = 0
     output_json = {}
@@ -537,8 +536,6 @@ if __name__ == "__main__":
             print("Config: " + config_file + ".")
 
             model.eval() # Set in evaluation mode
-
-            classes = load_classes(opt.class_path)  # Extracts class labels from file
             Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
             [winW, winH] = [opt.window_size, opt.window_size]

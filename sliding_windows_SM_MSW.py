@@ -8,8 +8,11 @@ from PIL import Image
 from skimage.io import imread
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
+from skimage import io
 
 import pyimagesearch.global_var as global_var
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 import os
 import sys
@@ -22,11 +25,7 @@ import torch
 import shutil
 import random
 import threading
-import image_slicer
 import copy
-
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 def calculate_iou(boxA, boxB):
     xA = max(boxA["x1"], boxB["x1"])
@@ -238,7 +237,8 @@ def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False, colo
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
-    cv2.imwrite(output_path, image)
+    # cv2.imwrite(output_path, image)
+    io.imsave(output_path, image)
 
 def draw_circles(output_json, image, output_path):
     for box in output_json:
@@ -246,11 +246,12 @@ def draw_circles(output_json, image, output_path):
         center_y = output_json[box]["center_y"]
         cv2.circle(image, (center_x, center_y), 10, (0, 0, 255), 5)
 
-    cv2.imwrite(output_path, image)
+    # cv2.imwrite(output_path, image)
+    io.imsave(output_path, image)
 
 def IsBackgroundMostlyBlack(window, winW, winH):
     try:
-        if window[int(winW/2), int(winH/2)].all() == np.array([0,0,0]).all() or window[int(winW/2), int(winH/2)].all() == np.array([255,255,255]).all():
+        if window[int(winW/2), int(winH/2)].all() == np.array([0,0,0]).all():
             return True
     except Exception as e:
         print(e)
@@ -287,8 +288,9 @@ def GenerateDetections(image, output_path):
         with open(os.path.join(output_path, "detection_filtered.json"), "w") as img_json:
             json.dump(input_json, img_json, indent=4)
 
+        image_detect = copy.deepcopy(image)
         draw_box_start = time.time()
-        box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image, os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")])
+        box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image_detect, os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")])
         box_thread.start()
         draw_box_end = time.time()
 
@@ -319,7 +321,6 @@ def GetWeightsType(weights_path):
     return None
 
 def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, tf_session=None):
-    cv2.namedWindow("output", cv2.WINDOW_NORMAL)
     window_idx = 0
     box_idx = 0
     output_json = {}
@@ -341,8 +342,9 @@ def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, t
         window_width, window_height = window_image.size
 
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
-            # window_image.save(os.path.join(output_path, "sliding_windows", window_name + ".jpg"))
+            window_image.save(os.path.join(output_path, "sliding_windows", window_name + ".jpg"))
             # cv2.imwrite(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
+            # io.imsave(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
             print("Performing detection on " + window_name + ".")
 
             if GetWeightsType(weights) == "yolo" or GetWeightsType(weights) == "pytorch":
@@ -411,25 +413,22 @@ def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, t
 
     GenerateDetections(image, output_path)
 
-def crop(im,height,width):
-    # im = Image.open(infile)
-    imgwidth, imgheight = im.size
-    for i in range(imgheight//height):
-        for j in range(imgwidth//width):
-            # print (i,j)
-            box = (j*width, i*height, (j+1)*width, (i+1)*height)
-            yield im.crop(box)
-
 def SplitImage(image, split):
     image_width, image_height = image.size
     M = image_width//split
     N = image_height//split
+    # print(M)
+    # print(N)
     image = np.array(image)
-    # tiles = [image[x:x + M, y:y + N] for x in range(0, image_width, M) for y in range(0, image_height, N)]
-    tiles = []
-    for y in range(0, image_height, N):
-        for x in range(0, image_width, M):
-            tiles.append(crop(image, y, x))
+    tiles = [image[x:x + M, y:y + N] for x in range(0, image_width, M) for y in range(0, image_height, N)]
+    # tiles = []
+    # for y in range(0, image_height, N):
+    #     for x in range(0, image_width, M):
+    #         print("X1: " + str(x) + " Y1: " + str(y))
+    #         print("X2: " + str(x+M) + " Y2: " + str(y+N))
+    #         print(image[x:x+M, y:y+N].shape)
+    #         tiles.append(image[x:x+M, y:y+N])
+
     return tiles
 
 if __name__ == "__main__":
@@ -457,108 +456,115 @@ if __name__ == "__main__":
         shutil.rmtree(opt.output)
     os.mkdir(opt.output)
 
-    im = Image.open(opt.image)
+    im = Image.open(opt.image).convert('RGB')
     image_width, image_height = im.size
     image_width = int(round(image_width, -2))
     image_height = int(round(image_height, -2))
+    im = im.resize((image_width, image_height))
+    image_width, image_height = im.size
+
     classes = load_classes(opt.class_path)
     image_idx = 0
     threads = []
     output_paths = []
-
     runtime_start = time.time()
 
+    print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
     sub_images = SplitImage(im, opt.split)
 
-    for image in sub_images:
-        cv2.imwrite(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
-        image_idx += 1
-
     # for image in sub_images:
-    #     x_offset = 0
-    #     y_offset = 0
-    #     x_coord = 0
-    #     y_coord = -1
-    #
-    #     if GetWeightsType(opt.weights) == "yolo" or GetWeightsType(opt.weights) == "pytorch":
-    #         from torch.utils.data import DataLoader
-    #         from torchvision import datasets
-    #         from torch.autograd import Variables
-    #
-    #         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #
-    #         print("PyTorch model detected.")
-    #
-    #         if weight.endswith("weights"):
-    #             print("Loaded the full weights with network architecture.")
-    #             model.load_darknet_weights(opt.weights)
-    #         else:
-    #             print("Loaded only the trained weights.")
-    #             model.load_state_dict(torch.load(opt.weights, map_location=torch.device('cpu')))
-    #
-    #         print("Weights: " + opt.weights + ".")
-    #         print("Config: " + config_file + ".")
-    #
-    #         model.eval()  # Set in evaluation mode
-    #         Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    #
-    #         [winW, winH] = [opt.window_size, opt.window_size]
-    #         opt.x_stride = int(winW / 2)
-    #         opt.y_stride = int(winH / 2)
-    #
-    #         global_var.max_x = (image_width / opt.x_stride) - 1
-    #         global_var.max_y = (image_height / opt.y_stride) - 1
-    #
-    #         output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(opt.image))[0] + "_" + str(image_idx))
-    #         image_idx += 1
-    #         output_paths.append(output_path)
-    #         os.mkdir(output_path)
-    #
-    #         child_thread = threading.Thread(target=sliding_windows,
-    #                                         args=(image, [winW, winH], opt.weights, output_path, x_coord, y_coord))
-    #         child_thread.start()
-    #         threads.append(child_thread)
-    #
-    #     elif GetWeightsType(opt.weights) == "tensorflow":
-    #         import tensorflow as tf
-    #
-    #         print("Tensorflow weights detected.")
-    #         print("Loaded tensorflow weights: " + os.path.basename(opt.weights) + ".")
-    #
-    #         [winW, winH] = [opt.window_size, opt.window_size]
-    #         opt.x_stride = int(winW / 2)
-    #         opt.y_stride = int(winH / 2)
-    #         global_var.max_x = (image_width / opt.x_stride) - 1
-    #         global_var.max_y = (image_height / opt.y_stride) - 1
-    #
-    #         with tf.gfile.FastGFile(opt.weights, 'rb') as f:
-    #             graph_def = tf.GraphDef()
-    #             graph_def.ParseFromString(f.read())
-    #
-    #         config = tf.ConfigProto(
-    #             gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
-    #         )
-    #         config.gpu_options.allow_growth = True
-    #
-    #         sess = tf.Session(config=config)
-    #         sess.graph.as_default()
-    #         tf.import_graph_def(graph_def, name='')
-    #
-    #         output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(opt.image))[0] + "_" + str(image_idx))
-    #         image_idx += 1
-    #         output_paths.append(output_path)
-    #         os.mkdir(output_path)
-    #
-    #         child_thread = threading.Thread(target=sliding_windows,
-    #                                         args=(image, [winW, winH], opt.weights, output_path, x_coord, y_coord, sess))
-    #         child_thread.start()
-    #         threads.append(child_thread)
-    #     else:
-    #         print("Could not find a valid trained weights for detection. Please supply a valid weights")
-    #         sys.exit()
-    #
-    # for thread in threads:
-    #     thread.join()
-    #
-    # runtime_end = time.time()
-    # print("Total runtime: " + str(runtime_end - runtime_start))
+    #     image = image[:,:,:3]
+    #     # image_without_alpha = Image.fromarray(image)
+    #     # cv2.imwrite(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
+    #     io.imsave(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
+    #     # image_without_alpha.save(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"))
+    #     image_idx += 1
+
+    for image in sub_images:
+        x_offset = 0
+        y_offset = 0
+        x_coord = 0
+        y_coord = -1
+
+        if GetWeightsType(opt.weights) == "yolo" or GetWeightsType(opt.weights) == "pytorch":
+            from torch.utils.data import DataLoader
+            from torchvision import datasets
+            from torch.autograd import Variable
+
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
+
+            print("PyTorch model detected.")
+
+            if opt.weights.endswith("weights"):
+                print("Loaded the full weights with network architecture.")
+                model.load_darknet_weights(opt.weights)
+            else:
+                print("Loaded only the trained weights.")
+                model.load_state_dict(torch.load(opt.weights, map_location=torch.device('cpu')))
+
+            print("Weights: " + opt.weights + ".")
+            print("Config: " + opt.model_def + ".")
+
+            model.eval()  # Set in evaluation mode
+            Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+
+            [winW, winH] = [opt.window_size, opt.window_size]
+            opt.x_stride = int(winW / 2)
+            opt.y_stride = int(winH / 2)
+
+            global_var.max_x = (image_width / opt.x_stride) - 1
+            global_var.max_y = (image_height / opt.y_stride) - 1
+
+            output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(opt.image))[0] + "_" + str(image_idx))
+            image_idx += 1
+            output_paths.append(output_path)
+            os.mkdir(output_path)
+
+            child_thread = threading.Thread(target=sliding_windows,
+                                            args=(image, [winW, winH], opt.weights, output_path, x_coord, y_coord))
+            child_thread.start()
+            threads.append(child_thread)
+
+        elif GetWeightsType(opt.weights) == "tensorflow":
+            import tensorflow as tf
+
+            print("Tensorflow weights detected.")
+            print("Loaded tensorflow weights: " + os.path.basename(opt.weights) + ".")
+
+            [winW, winH] = [opt.window_size, opt.window_size]
+            opt.x_stride = int(winW / 2)
+            opt.y_stride = int(winH / 2)
+            global_var.max_x = (image_width / opt.x_stride) - 1
+            global_var.max_y = (image_height / opt.y_stride) - 1
+
+            with tf.gfile.FastGFile(opt.weights, 'rb') as f:
+                graph_def = tf.GraphDef()
+                graph_def.ParseFromString(f.read())
+
+            config = tf.ConfigProto(
+                gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
+            )
+            config.gpu_options.allow_growth = True
+
+            sess = tf.Session(config=config)
+            sess.graph.as_default()
+            tf.import_graph_def(graph_def, name='')
+
+            output_path = os.path.join(opt.output, os.path.splitext(os.path.basename(opt.image))[0] + "_" + str(image_idx))
+            image_idx += 1
+            output_paths.append(output_path)
+            os.mkdir(output_path)
+
+            child_thread = threading.Thread(target=sliding_windows, args=(image, [winW, winH], opt.weights, output_path, x_coord, y_coord, sess))
+            child_thread.start()
+            threads.append(child_thread)
+        else:
+            print("Could not find a valid trained weights for detection. Please supply a valid weights")
+            sys.exit()
+
+    for thread in threads:
+        thread.join()
+
+    runtime_end = time.time()
+    print("Total runtime: " + str(runtime_end - runtime_start))
