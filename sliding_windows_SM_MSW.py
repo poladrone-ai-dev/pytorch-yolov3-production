@@ -26,6 +26,7 @@ import shutil
 import random
 import threading
 import copy
+import glob
 
 def calculate_iou(boxA, boxB):
     xA = max(boxA["x1"], boxB["x1"])
@@ -405,7 +406,7 @@ def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, t
                     box_idx += 1
 
             window_idx += 1
-            cv2.waitKey(1)
+            # cv2.waitKey(1)
 
     fp.close()
     with open(os.path.join(output_path, "detection.json"), "w") as img_json:
@@ -413,23 +414,87 @@ def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, t
 
     GenerateDetections(image, output_path)
 
-def SplitImage(image, split):
+def SplitImageByIdx(image, split):
     image_width, image_height = image.size
-    M = image_width//split
-    N = image_height//split
-    # print(M)
-    # print(N)
+    N = round((image_width // split) - 1)
+    M = round((image_height // split) - 1)
+    print(N)
+    print(M)
     image = np.array(image)
-    tiles = [image[x:x + M, y:y + N] for x in range(0, image_width, M) for y in range(0, image_height, N)]
-    # tiles = []
-    # for y in range(0, image_height, N):
-    #     for x in range(0, image_width, M):
-    #         print("X1: " + str(x) + " Y1: " + str(y))
-    #         print("X2: " + str(x+M) + " Y2: " + str(y+N))
-    #         print(image[x:x+M, y:y+N].shape)
-    #         tiles.append(image[x:x+M, y:y+N])
+    tiles = []
+
+    x1 = 0
+    x2 = 0
+    y1 = 0
+    y2 = 0
+    for i in range(split):
+        x2 = 0
+        x1 = 0
+        y1 = y1 + (i * M)
+        y2 = y1 + M
+        for j in range(split):
+            ss = []
+            x1 = x1 + (j * N)
+            x2 = x1 + N
+            print("X1: " + str(x1) + " Y1: " + str(y1))
+            print("X2: " + str(x2) + " Y2: " + str(y2))
+            ss = image[y1:y2, x1:x2, :]
+            print(ss.shape)
+            tiles.append(ss)
 
     return tiles
+
+def SplitImageByHalf(image):
+    image_width, image_height = image.size
+    image = np.array(image)
+    tiles = []
+    M = image_height // 2
+    tiles.append(image[:M,:,:])
+    tiles.append(image[M+1:,:,:])
+    return tiles
+
+def SplitImageWithStride(image, split):
+    image_width, image_height = image.size
+    window_width = round(image_width // split)
+    window_height = round(image_height // split)
+    x_stride = 1000 # int(window_width / 10)
+    y_stride = 1000 # int(window_height / 10)
+
+    print("Window width: " + str(window_width))
+    print("Window height: " + str(window_height))
+    print("X_stride: " + str(x_stride))
+    print("Y_stride: " + str(y_stride))
+
+    tiles = []
+    offsets = []
+    image = np.array(image)
+
+    x1 = 0
+    x2 = 0
+    y1 = 0
+    y2 = 0
+
+    for i in range(split):
+        x2 = 0
+        x1 = 0
+        y1 = y1 + (i * window_height) - (i * y_stride)
+        y2 = y1 + window_height
+
+        for j in range(split):
+            ss = []
+            x1 = x1 + (j * window_width) - (j * x_stride)
+            x2 = x1 + window_width
+            ss = image[y1:y2, x1:x2, :]
+            print(ss.shape)
+            tiles.append(ss)
+            offsets.append([j * (window_width - x_stride), i * (window_height - y_stride)])
+
+    return tiles, offsets
+
+def SaveSplitImages(images, image_idx):
+    for image in images:
+        io.imsave(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
+        image_idx += 1
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -458,10 +523,6 @@ if __name__ == "__main__":
 
     im = Image.open(opt.image).convert('RGB')
     image_width, image_height = im.size
-    image_width = int(round(image_width, -2))
-    image_height = int(round(image_height, -2))
-    im = im.resize((image_width, image_height))
-    image_width, image_height = im.size
 
     classes = load_classes(opt.class_path)
     image_idx = 0
@@ -470,15 +531,14 @@ if __name__ == "__main__":
     runtime_start = time.time()
 
     print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
-    sub_images = SplitImage(im, opt.split)
+    # sub_images = SplitImageByIdx(im, opt.split)
+    # sub_images = SplitImageByHalf(im)
+    sub_images, tile_offsets = SplitImageWithStride(im, 2)
+    # SaveSplitImages(sub_images, image_idx)
 
-    # for image in sub_images:
-    #     image = image[:,:,:3]
-    #     # image_without_alpha = Image.fromarray(image)
-    #     # cv2.imwrite(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
-    #     io.imsave(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
-    #     # image_without_alpha.save(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"))
-    #     image_idx += 1
+    # sub_images = [Image.open(path) for path in glob.glob(os.path.join(r'test4_with_stride', "*.jpg"))]
+    # sub_images = [Image.open(path) for path in glob.glob(os.path.join(opt.output, "*.jpg"))]
+    # sub_images = [np.array(image) for image in sub_images]
 
     for image in sub_images:
         x_offset = 0
@@ -533,8 +593,8 @@ if __name__ == "__main__":
             print("Loaded tensorflow weights: " + os.path.basename(opt.weights) + ".")
 
             [winW, winH] = [opt.window_size, opt.window_size]
-            opt.x_stride = int(winW / 2)
-            opt.y_stride = int(winH / 2)
+            opt.x_stride =  int(winW / 2)
+            opt.y_stride =  int(winH / 2)
             global_var.max_x = (image_width / opt.x_stride) - 1
             global_var.max_y = (image_height / opt.y_stride) - 1
 
