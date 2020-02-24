@@ -634,7 +634,6 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, im
 
     return new_detections_json
 
-
 ###############################################################################
 #
 #
@@ -658,7 +657,7 @@ def calculate_box_offset(opt_x_stride, opt_y_stride, output_json, window, box):
 #
 #
 ###############################################################################
-def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False, color_dict=None):
+def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False):
     draw_bounding_boxes_start = time.time()
 
     for box in output_json:
@@ -670,11 +669,7 @@ def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False, colo
         height = output_json[box]["height"]
         cls_pred = output_json[box]["cls_pred"]
         conf = output_json[box]["conf"]
-
-        if color_dict is not None:
-            color = color_dict[output_json[box]["model"]]
-        else:
-            color = (255, 0, 0)
+        color = (255, 0, 0)
 
         if shrink_bbox:
             x1 += int(0.2 * width)
@@ -691,7 +686,6 @@ def draw_bounding_boxes(output_json, image, output_path, shrink_bbox=False, colo
 
     draw_bounding_boxes_end = time.time()
     # t_Table.append(['Drawing Results -- Boxes  ', (draw_bounding_boxes_end - draw_bounding_boxes_start) ])
-
 
 ###############################################################################
 #
@@ -834,7 +828,7 @@ def GetWeightsType(weights_path):
 # def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, tf_session=None):
 
 def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres,
-                    opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride, jpg_file, window_dim,
+                    opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride, window_dim,
                     x_coord, y_coord, tf_session=None):
     # opt_Debug, im,    progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres, opt_weights_path,opt_output,opt_x_stride, opt_y_stride ,opt_image,[winW, winH],x_coord, y_coord, sess
     # opt_nms_thres
@@ -878,7 +872,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
             # window_image.save(os.path.join(output_path, "sliding_windows", window_name + ".jpg"))
             if opt_Debug:
-                print("Performing detection on " + window_name + ".")
+                # print("Performing detection on " + window_name + ".")
                 window_image.save(os.path.join(current_BGW_Path, window_name + "_1.jpg"))
                 # cv2.imwrite(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
                 # io.imsave(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
@@ -894,7 +888,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
             # window = window_image
 
             if opt_Debug:
-                print("Performing detection on " + window_name + ".")
+                # print("Performing detection on " + window_name + ".")
                 window.save(os.path.join(current_BGW_Path, window_name + "_2.jpg"))
                 # cv2.imshow('image',window)
                 # cv2.waitKey(3)
@@ -1116,7 +1110,6 @@ def SplitImageWithStride(image, split):
     #
 
 #########################################################
-    # split = 2
     image_width, image_height = image.size
     window_width = round(image_width // split)
     window_height = round(image_height // split)
@@ -1134,7 +1127,6 @@ def SplitImageWithStride(image, split):
 
     y1 = 0
     y2 = 0
-
     for i in range(split):
         x2 = 0
         x1 = 0
@@ -1198,6 +1190,48 @@ def CompareImages(image1, image2):
 
     return True
 
+def CombineDetections(progress_Counter, image_width, image_height, output_path, detection_paths, tile_offsets):
+    detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
+    combined_json = {}
+    box_idx = 0
+    detection_json_index = 0
+
+    for detection_json in detection_jsons:
+        with open(detection_json, 'r') as fp:
+            detections = json.load(fp)
+
+        for box in detections:
+            combined_json["box" + str(box_idx)] = detections[box]
+            combined_json["box" + str(box_idx)]["x1"] += tile_offsets[detection_json_index][0]
+            combined_json["box" + str(box_idx)]["y1"] += tile_offsets[detection_json_index][1]
+            combined_json["box" + str(box_idx)]["x2"] += tile_offsets[detection_json_index][0]
+            combined_json["box" + str(box_idx)]["y2"] += tile_offsets[detection_json_index][1]
+            box_idx += 1
+
+        detection_json_index += 1
+
+    iou_thres = [0.5]
+    combined_json = SortDetections(opt.Debug, output_path, combined_json)
+
+    for iou in iou_thres:
+        filter_bounding_boxes_optimized(opt.Debug, progress_Counter, image_width, image_height, combined_json, iou)
+
+    with open(os.path.join(output_path, "detection.json"), 'w') as out_fp:
+        json.dump(combined_json, out_fp, indent=4)
+
+def DrawCombineDetections(output_path, detection_path, image_path):
+    output_image_path = os.path.join(output_path, os.path.basename(image_path))
+    shutil.copyfile(image_path, output_image_path)
+
+    with open(detection_path, 'r') as fp:
+        detection = json.load(fp)
+
+    if opt.full_map:
+        image = imread(os.path.abspath(image_path), plugin='tifffile')
+    else:
+        image = imread(os.path.abspath(image_path), plugin='pil')
+
+    draw_bounding_boxes(detection, image, output_image_path)
 
 ###############################################################################
 #
@@ -1206,25 +1240,14 @@ def CompareImages(image1, image2):
 ###############################################################################
 
 if __name__ == "__main__":
-
-    ###############################################################################
-    #
-    ###############################################################################
     main_start = time.time()
 
-    ###############################################################################
-    #
-    ###############################################################################
     l = 100
     clear()
     printProgressBar(0, l, prefix='Progress:', suffix='Complete', length=50)
     progress_Counter = 1
     printProgressBar(progress_Counter + 1, 100, prefix='Progress:', suffix='Complete', length=50)
 
-
-    ###############################################################################
-    #
-    ###############################################################################
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", type=str, required=True, help="path to weights file")
     parser.add_argument("--class_path", type=str, required=True, help="path to class label file")
@@ -1232,10 +1255,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, required=True, help="path to the detections output")
     parser.add_argument("--window_size", type=int, required=True, help="size of the sliding window")
     parser.add_argument("--split", type=int, required=True, help="determines how many sub images to generate")
-
     parser.add_argument("--full_map", type=bool, default=False, help="Run Full Map mode from Tiff")
     parser.add_argument("--Debug", type=bool, default=False, help="Run Full Map mode from Tiff")
-
     parser.add_argument("--model_def", type=str, help="path to weights cfg file (for certain weights)")
     parser.add_argument("--conf_thres", type=float, default=0.8, help="object confidence threshold")
     parser.add_argument("--nms_thres", type=float, default=0.4, help="iou threshold for non-maximum suppression")
@@ -1245,13 +1266,10 @@ if __name__ == "__main__":
     parser.add_argument("--x_stride", type=int, default=200, help="width stride of the sliding window in pixels")
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
 
-    Image.MAX_IMAGE_PIXELS = 20000000000
-
     opt = parser.parse_args()
 
-    ###############################################################################
-    #
-    ###############################################################################
+    Image.MAX_IMAGE_PIXELS = 20000000000
+
     opt_weights_path = opt.weights
     opt_image = opt.image
     opt_output = opt.output
@@ -1268,31 +1286,16 @@ if __name__ == "__main__":
     down_scale = 1
     temp_Folder = "C:\\AiraMapScanner_Temp"
 
-    ###############################################################################
-
-    ###############################################################################
-    #
-    ###############################################################################
-    tiff_path, jpg_extension = os.path.splitext(opt_image)
-    opt_output = tiff_path
-
-    ###############################################################################
-    #
-    ###############################################################################
+    # tiff_path, jpg_extension = os.path.splitext(opt_image)
+    opt_output = opt.output
 
     if os.path.exists(opt_output):
         shutil.rmtree(opt_output)
     os.mkdir(opt_output)
 
-    ###############################################################################
-    #
-    ###############################################################################
     progress_Counter = 5
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-    ###############################################################################
-    #
-    ###############################################################################
     if opt_full_map:
         t_Table.append(['Input Image Type ', 'Full MAP '])
         xOrigin, yOrigin, pixelWidth, pixelHeight, proj_type, jpg_file, im, cord = ConvertFUllmap(temp_Folder,
@@ -1305,60 +1308,34 @@ if __name__ == "__main__":
         t_Table.append(['TiFF Proj Type ', ' None '])
         im = Image.open(opt_image).convert('RGB')
 
-    ###############################################################################
-    #
-    ###############################################################################
     progress_Counter = 10
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-    ###############################################################################
-    #
-    ###############################################################################
     image_width, image_height = im.size
     # print (im.size)
     # image_width  =  (im.shape[1])
     # image_height = (im.shape[0])
 
-    ###############################################################################
-    #
-    ###############################################################################
     im_size = (image_width, image_height)
     t_Table.append(['Input Image Size ', im_size])
 
-    ###############################################################################
-    #
-    ###############################################################################
     image_width = int(round(image_width, -2))
     image_height = int(round(image_height, -2))
 
-    ###############################################################################
-    #
-    ###############################################################################
     classes = load_classes(opt_class_path)
     image_idx = 0
     threads = []
     output_paths = []
 
-    ###############################################################################
-    #
-    ###############################################################################
     progress_Counter = 15
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-    ###############################################################################
-    #
-    ###############################################################################
     runtime_start = time.time()
-    ###############################################################################
-    #
-    ###############################################################################
     if opt_Debug:
         print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
 
-    ###############################################################################
-    #
-    ###############################################################################
     sub_images, tile_offsets = SplitImageWithStride(im, 2)
+
     # sub_images = SplitImageByIdx('true',im, 1)
 
     # SaveSplitImages(sub_images, image_idx)
@@ -1370,41 +1347,20 @@ if __name__ == "__main__":
     # images_from_disk = [Image.open(path).convert('RGB') for path in glob.glob(os.path.join(opt_output, "*.jpg"))]
     # images_from_disk = [np.array(image) for image in images_from_disk]
 
-    # print(CompareImages(sub_images[0], images_from_disk[0]))
-
-    ###############################################################################
-    #
-    ###############################################################################
     for image in sub_images:
-        ###############################################################################
-        #
-        ###############################################################################
         x_offset = 0
         y_offset = 0
         x_coord = 0
         y_coord = -1
 
-        ###############################################################################
-        #
-        ###############################################################################
         if GetWeightsType(opt_weights_path) == "yolo" or GetWeightsType(opt_weights_path) == "pytorch":
-
-            ###############################################################################
-            #
-            ###############################################################################
             from torch.utils.data import DataLoader
             from torchvision import datasets
             from torch.autograd import Variable
 
-            ###############################################################################
-            #
-            ###############################################################################
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             model = Darknet(opt_model_def, img_size=opt_img_size).to(device)
 
-            ###############################################################################
-            #
-            ###############################################################################
             if opt.weights.endswith("weights"):
                 print("Loaded the full weights with network architecture.")
                 model.load_darknet_weights(opt_weights_path)
@@ -1412,185 +1368,121 @@ if __name__ == "__main__":
                 print("Loaded only the trained weights.")
                 model.load_state_dict(torch.load(opt_weights_path, map_location=torch.device('cpu')))
 
-            ###############################################################################
-            #
-            ###############################################################################
             if opt_Debug:
                 print("PyTorch model detected.")
                 print("Weights: " + opt_weights_path + ".")
                 print("Config: " + opt_model_def + ".")
 
-            ###############################################################################
-            #
-            ###############################################################################
             model.eval()  # Set in evaluation mode
             Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
-            ###############################################################################
-            #
-            ###############################################################################
             [winW, winH] = [opt_window_size, opt_window_size]
             opt_x_stride = int(winW / 2)
             opt_y_stride = int(winH / 2)
 
-            ###############################################################################
-            #
-            ###############################################################################
             global_var.max_x = (image_width / opt_x_stride) - 1
             global_var.max_y = (image_height / opt_y_stride) - 1
-
-            ###############################################################################
-            #
-            ###############################################################################
+            
             output_path = os.path.join(opt_output,
                                        os.path.splitext(os.path.basename(opt_image))[0] + "_" + str(image_idx))
             image_idx += 1
             output_paths.append(output_path)
             os.mkdir(output_path)
-
-            ###############################################################################
-            #
-            ###############################################################################
+            
             child_thread = threading.Thread(target=sliding_windows,
                                             args=(image, [winW, winH], opt_weights_path, output_path, x_coord, y_coord))
             child_thread.start()
             threads.append(child_thread)
 
-        ###############################################################################
-        #
-        ###############################################################################
         elif GetWeightsType(opt_weights_path) == "tensorflow":
-            ###############################################################################
-            #
-            ###############################################################################
+            
             import warnings
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore",category=FutureWarning)
-                ###############################################################################
-                #
-                ###############################################################################
+                
                 import tensorflow as tf
 
                 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
                 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
-                ###############################################################################
-                #
-                ###############################################################################
                 if opt_Debug:
                     print("Tensorflow weights detected.")
                     print("Loaded tensorflow weights: " + os.path.basename(opt_weights_path) + ".")
 
-                ###############################################################################
-                #
-                ###############################################################################
                 [winW, winH] = [opt_window_size, opt_window_size]
                 opt_x_stride = int(winW / 2)
                 opt_y_stride = int(winH / 2)
                 global_var.max_x = (image_width / opt_x_stride) - 1
                 global_var.max_y = (image_height / opt_y_stride) - 1
 
-                ###############################################################################
-                #
-                ###############################################################################
                 with tf.gfile.FastGFile(opt_weights_path, 'rb') as f:
                     graph_def = tf.GraphDef()
                     graph_def.ParseFromString(f.read())
 
-                ###############################################################################
-                #
-                ###############################################################################
                 config = tf.ConfigProto(
                     gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
                 )
                 config.gpu_options.allow_growth = True
 
-                ###############################################################################
-                #
-                ###############################################################################
                 sess = tf.Session(config=config)
                 sess.graph.as_default()
                 tf.import_graph_def(graph_def, name='')
 
-                ###############################################################################
-                #
-                ###############################################################################
                 progress_Counter = 30
                 printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-                ###############################################################################
-                #
-                ###############################################################################
-                output_path = os.path.join(opt_output,
-                                           os.path.splitext(os.path.basename(opt_image))[0] + "_" + str(image_idx))
+                output_path = os.path.join(opt_output, os.path.splitext(os.path.basename(opt_image))[0] + "_" + str(image_idx))
                 image_idx += 1
                 output_paths.append(output_path)
                 os.mkdir(output_path)
 
-                ###############################################################################
-                #
-                ###############################################################################
                 child_thread = threading.Thread(target=sliding_windows, args=(
                 opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                opt_weights_path, output_path, opt_x_stride, opt_y_stride, jpg_file, [winW, winH], x_coord, y_coord, sess))
+                opt_weights_path, output_path, opt_x_stride, opt_y_stride, [winW, winH], x_coord, y_coord, sess))
                 child_thread.start()
                 threads.append(child_thread)
-
-
 
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
 
-    ###############################################################################
-    #
-    ###############################################################################
+    
     for thread in threads:
         thread.join()
 
-    ###############################################################################
-    #
-    ###############################################################################
     progress_Counter = 75
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-    ###############################################################################
-    #
-    ###############################################################################
+    combined_path = os.path.join(opt.output, "combined_detections")
+    # if os.path.isdir(combined_path):
+    #     shutil.rmtree(combined_path)
+
+    os.mkdir(os.path.abspath(combined_path))
+
+    CombineDetections(progress_Counter, image_width, image_height, combined_path, output_paths, tile_offsets)
+    combine_start = time.time()
+    DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
+    combine_end = time.time()
+
     runtime_end = time.time()
 
-    ###############################################################################
-    #
-    ###############################################################################
     if opt_Debug:
         print("Total runtime: " + str(runtime_end - runtime_start))
 
-    ###############################################################################
-    #
-    ###############################################################################
     main_end = time.time()
     t_Table.append(['      Total Time  Elapsed     ', (main_end - main_start)])
     progress_Counter = 100
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
     time.sleep(0.1)
 
-    ###############################################################################
-    #
-    ###############################################################################
     t = Texttable(180)
     # t.set_cols_width([80,80])
     t.add_rows(t_Table)
 
-    ###############################################################################
-    #
-    ###############################################################################
     txt_summary = os.path.splitext(os.path.basename(tiff_path))[0] + '_Summary.txt'
     with open(os.path.join(output_path, txt_summary), 'a+') as summary:
         summary.write(t.draw())
     summary.close()
 
-    ###############################################################################
-    #
-    ###############################################################################
     print(colored(t.draw(), 'yellow', attrs=['bold']))
     time.sleep(5)
