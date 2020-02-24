@@ -322,6 +322,7 @@ def GetWeightsType(weights_path):
     return None
 
 def sliding_windows(image, window_dim, weights, output_path, x_coord, y_coord, tf_session=None):
+
     window_idx = 0
     box_idx = 0
     output_json = {}
@@ -454,6 +455,7 @@ def SplitImageByHalf(image):
     return tiles
 
 def SplitImageWithStride(image, split):
+    split = 2
     image_width, image_height = image.size
     window_width = round(image_width // split)
     window_height = round(image_height // split)
@@ -484,8 +486,7 @@ def SplitImageWithStride(image, split):
             ss = []
             x1 = x1 + (j * window_width) - (j * x_stride)
             x2 = x1 + window_width
-            ss = image[y1:y2, x1:x2, :]
-            print(ss.shape)
+            ss = image[y1:y2, x1:x2]
             tiles.append(ss)
             offsets.append([j * (window_width - x_stride), i * (window_height - y_stride)])
 
@@ -493,8 +494,44 @@ def SplitImageWithStride(image, split):
 
 def SaveSplitImages(images, image_idx):
     for image in images:
-        io.imsave(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
+        # io.imsave(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"), image)
+        im = Image.fromarray(image)
+        im.save(os.path.join(opt.output, "img" + str(image_idx) + ".jpg"))
         image_idx += 1
+
+def CheckTolerance(pixel1, pixel2):
+    print("pixel1: " + str(pixel1))
+    print("pixel2: " + str(pixel2))
+    if abs(pixel1 - pixel2) <= 20:
+        return True
+    print("Found two different pixels.")
+    return False
+
+def CompareImages(image1, image2):
+
+    if image1.shape != image2.shape:
+        return False
+
+    im_height, im_width = image1.shape[0], image1.shape[1]
+
+    thres = 0
+
+    for y in range(0, im_height):
+        for x in range(0, im_width):
+
+            if thres > 50:
+                return False
+
+            image1_pixel = image1[x, y]
+            image2_pixel = image2[x, y]
+
+            if CheckTolerance(image1_pixel[0], image2_pixel[0]) and CheckTolerance(image1_pixel[1], image2_pixel[1]) and \
+                CheckTolerance(image1_pixel[2], image2_pixel[2]):
+                pass
+            else:
+                thres += 1
+
+    return True
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -531,14 +568,18 @@ if __name__ == "__main__":
     runtime_start = time.time()
 
     print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
-    # sub_images = SplitImageByIdx(im, opt.split)
-    # sub_images = SplitImageByHalf(im)
     sub_images, tile_offsets = SplitImageWithStride(im, 2)
+
     # SaveSplitImages(sub_images, image_idx)
 
-    # sub_images = [Image.open(path) for path in glob.glob(os.path.join(r'test4_with_stride', "*.jpg"))]
-    # sub_images = [Image.open(path) for path in glob.glob(os.path.join(opt.output, "*.jpg"))]
+    # sub_images = [Image.open(path).convert('RGB') for path in glob.glob(os.path.join(r'test4_with_stride', "*.jpg"))]
+    # sub_images = [Image.open(path).convert('RGB') for path in glob.glob(os.path.join(opt.output, "*.jpg"))]
     # sub_images = [np.array(image) for image in sub_images]
+
+    # images_from_disk = [Image.open(path).convert('RGB') for path in glob.glob(os.path.join(opt.output, "*.jpg"))]
+    # images_from_disk = [np.array(image) for image in images_from_disk]
+
+    # print(CompareImages(sub_images[0], images_from_disk[0]))
 
     for image in sub_images:
         x_offset = 0
