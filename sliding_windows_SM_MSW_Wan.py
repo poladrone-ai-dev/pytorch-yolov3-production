@@ -9,7 +9,6 @@ from skimage.io import imread
 from pyimagesearch.helpers import sliding_window
 from pyimagesearch.helpers import pyramid
 
-import pyimagesearch.global_var as global_var
 from skimage import io
 import os
 import sys
@@ -551,7 +550,7 @@ def ExportShpProj(tiff_path, gps_Fields, proj_type):
 #
 #
 ###############################################################################
-def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, image_height, detections_json, iou_thres, tile_sizes, tile_strides):
+def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, image_height, detections_json, iou_thres):
     bounding_boxes_filter_start = time.time()
 
     deleted_boxes = []
@@ -566,67 +565,10 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, im
     progress_percentage_for_filtering = 10
     total_Box_Count = len(detections_json_list)
     
-    print("Thread id: " + str(threading.get_ident()))
-    print("Tile Offsets: " + str(tile_sizes))
-    print("Image Width: " + str(image_width))
-    print("Image Height: " + str(image_height))
+    # print("Thread id: " + str(threading.get_ident()))
+    # print("Image Width: " + str(image_width))
+    # print("Image Height: " + str(image_height))
 
-    # for idx in range(len(detections_json_list)):
-    #     if tile_sizes[0][0] == 0 and tile_sizes[0][1] == 0:
-    #         x_offset = image_width + tile_strides[0]
-    #         y_offset = image_height + tile_strides[1]
-    #         print("Tile 0")
-    #         print("X offset: " + str(x_offset))
-    #         print("Y offset: " + str(y_offset))
-    #
-    #         if detections_json[detections_json_list[idx]]["x1"] > x_offset or detections_json[detections_json_list[idx]]["y1"] > y_offset:
-    #             x_offset = 0
-    #             y_offset = 0
-    #             del detections_json[detections_json_list[idx]]
-    #             continue
-    #
-    #     if tile_sizes[1][0] > 0 and tile_sizes[1][1] == 0:
-    #         x_offset = image_width + tile_sizes[1][0] - tile_strides[0]
-    #         y_offset = image_height + tile_strides[1]
-    #
-    #         print("Tile 1")
-    #         print("X offset: " + str(x_offset))
-    #         print("Y offset: " + str(y_offset))
-    #
-    #         if detections_json[detections_json_list[idx]]["x1"] < x_offset or detections_json[detections_json_list[idx]]["y1"] > y_offset:
-    #             x_offset = 0
-    #             y_offset = 0
-    #             del detections_json[detections_json_list[idx]]
-    #             continue
-    #
-    #     if tile_sizes[2][0] == 0 and tile_sizes[2][1] > 0:
-    #         x_offset = image_width + tile_strides[0]
-    #         y_offset = image_height + tile_sizes[2][1] - tile_strides[1]
-    #
-    #         print("Tile 2")
-    #         print("X offset: " + str(x_offset))
-    #         print("Y offset: " + str(y_offset))
-    #         if detections_json[detections_json_list[idx]]["x1"] > x_offset or detections_json[detections_json_list[idx]]["y1"] < y_offset:
-    #             x_offset = 0
-    #             y_offset = 0
-    #             del detections_json[detections_json_list[idx]]
-    #             continue
-    #
-    #     if tile_sizes[3][0] > 0 and tile_sizes[3][1] > 0:
-    #         x_offset = image_width + tile_sizes[3][0] - tile_strides[0]
-    #         y_offset = image_width + tile_sizes[3][1] - tile_strides[1]
-    #
-    #         print("Tile 3")
-    #         print("X offset: " + str(x_offset))
-    #         print("Y offset: " + str(y_offset))
-    #
-    #         if detections_json[detections_json_list[idx]]["x1"] < x_offset or detections_json[detections_json_list[idx]]["y1"] < y_offset:
-    #             x_offset = 0
-    #             y_offset = 0
-    #             del detections_json[detections_json_list[idx]]
-    #             continue
-    #
-    # detections_json_list = list(detections_json)
 
     for idx in range(len(detections_json_list)):
         progress_Counter = progress_Counter + (progress_percentage_for_filtering / total_Box_Count)
@@ -690,23 +632,6 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, im
     return detections_json
     #return new_detections_json
 
-###############################################################################
-#
-#
-#
-###############################################################################
-def calculate_box_offset(opt_x_stride, opt_y_stride, output_json, window, box):
-    coords = get_tile_coordinates(window)
-    output_json[box]["x1"] += coords[1] * opt_x_stride
-    output_json[box]["x2"] += coords[1] * opt_x_stride
-    output_json[box]["center_x"] += coords[1] * opt_x_stride
-    output_json[box]["x_offset"] = coords[1] * opt_x_stride
-
-    output_json[box]["y1"] += coords[0] * opt_y_stride
-    output_json[box]["y2"] += coords[0] * opt_y_stride
-    output_json[box]["center_y"] += coords[0] * opt_y_stride
-    output_json[box]["y_offset"] = coords[0] * opt_y_stride
-
 
 ###############################################################################
 #
@@ -717,17 +642,6 @@ def draw_bounding_boxes(output_json, image, output_path):
     draw_bounding_boxes_start = time.time()
 
     for box in output_json:
-
-        # if box == "box2159":
-        #     print("X1: " + str(output_json[box]["x1"]))
-        #     print("Y1: " + str(output_json[box]["y1"]))
-        #     print("X2: " + str(output_json[box]["x2"]))
-        #     print("Y2: " + str(output_json[box]["y2"]))
-        #     print("X_offset: " + str(output_json[box]["x_offset"]))
-        #     print("Y_offset: " + str(output_json[box]["y_offset"]))
-        #     print("Window_idx: " + str(output_json[box]["window_idx"]))
-        #     print("Thread ID: " + str(output_json[box]["thread_id"]))
-        #     print("Conf: " + str(output_json[box]["conf"]))
 
         x1 = output_json[box]["x1"]
         y1 = output_json[box]["y1"]
@@ -790,7 +704,7 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 #
 #
 ###############################################################################
-def GenerateDetections(opt_Debug, progress_Counter, image, output_path, tile_sizes, tile_strides):
+def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
     threads = []
 
     if os.path.isfile(os.path.join(output_path, 'detection.json')):
@@ -806,7 +720,6 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path, tile_siz
 
         before_filter_thread.start()
         threads.append(before_filter_thread)
-        # draw_bounding_boxes(input_json, image_before_filter, os.path.join(output_path, os.path.basename(output_path) + "_detection_before_filter.jpeg"))
 
         input_json = SortDetections(opt_Debug, output_path, input_json)
 
@@ -817,7 +730,7 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path, tile_siz
         filtering_start = time.time()
 
         for iou_thres in iou_thres_range:
-            input_json = filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, image_height, input_json, iou_thres, tile_sizes, tile_strides)
+            input_json = filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, image_height, input_json, iou_thres)
 
         filtering_end = time.time()
 
@@ -840,7 +753,6 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path, tile_siz
                                                                      os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg")])
         circles_thread.start()
         threads.append(circles_thread)
-        # draw_bounding_boxes(input_json, image_circles, os.path.join(output_path, os.path.basename(output_path) + "_detection_circles.jpeg"))
         draw_circles_end = time.time()
 
     for _thread in threads:
@@ -884,8 +796,7 @@ def GetWeightsType(weights_path):
 #
 ###############################################################################
 def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres,
-                    opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tile_offsets, tile_strides,
-                    tf_session=None):
+                    opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tf_session=None):
     # opt_Debug, im, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres, opt_weights_path,opt_output,opt_x_stride, opt_y_stride ,opt_image,[winW, winH],x_coord, y_coord, sess
     # opt_nms_thres
     image = np.asarray(image)
@@ -911,7 +822,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
     total_Win_Count = int(math.modf(im_w / (winW - (winW - (opt_x_stride))))[1]) * int(math.modf(im_h / (winH - (winH - (opt_y_stride))))[1])
 
     # for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
-    for (x, y, window, x_coord, y_coord) in sliding_window(image, x_stepSize=opt_x_stride, y_stepSize=opt_y_stride,
+    for (x_Offset, y_Offset, window, x_coord, y_coord) in sliding_window(image, x_stepSize=opt_x_stride, y_stepSize=opt_y_stride,
                                                            windowSize=[winW, winH], x_coord=x_coord, y_coord=y_coord):
         progress_Counter = progress_Counter + (progress_percentage_for_SW / total_Win_Count)
         printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
@@ -930,15 +841,15 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
                 # io.imsave(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
 
             # what is this portion of code doing?
-            hsv = cv2.cvtColor(np.asarray(window_image), cv2.COLOR_BGR2HSV)
-            lower_red = np.array([40, 40, 40])
-            upper_red = np.array([95, 255, 255])
-            mask1 = cv2.inRange(hsv, lower_red, upper_red)
-            mask1 = cv2.morphologyEx(mask1, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8), iterations=2) # erosion followed by dilation, removes noise
-            mask1 = cv2.dilate(mask1, np.ones((17, 17), np.uint8), iterations=2) # why dilate twice?
-            res1 = cv2.bitwise_and(np.asarray(window_image), np.asarray(window_image), mask=mask1)
-            window = Image.fromarray(res1, 'RGB')
-            window.save(os.path.join(current_BGW_Path, window_name + ".jpg"))
+            # hsv = cv2.cvtColor(np.asarray(window_image), cv2.COLOR_BGR2HSV)
+            # lower_red = np.array([40, 40, 40])
+            # upper_red = np.array([95, 255, 255])
+            # mask1 = cv2.inRange(hsv, lower_red, upper_red)
+            # mask1 = cv2.morphologyEx(mask1, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8), iterations=2) # erosion followed by dilation, removes noise
+            # mask1 = cv2.dilate(mask1, np.ones((17, 17), np.uint8), iterations=2) # why dilate twice?
+            # res1 = cv2.bitwise_and(np.asarray(window_image), np.asarray(window_image), mask=mask1)
+            # window = Image.fromarray(res1, 'RGB')
+            # window.save(os.path.join(current_BGW_Path, window_name + ".jpg"))
 
             if GetWeightsType(opt_weights_path) == "yolo" or GetWeightsType(opt_weights_path) == "pytorch":
                 detections = detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window, model)
@@ -958,7 +869,6 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
                     detections = rescale_boxes(detections, opt_img_size, [window_width, window_height])
 
                 for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                    # if (round(x2.item()) < (im_w - 5000)) and (round(y2.item()) < (im_h - 5000)):
                     box_name = "box" + str(box_idx)
                     box_w = x2 - x1
                     box_h = y2 - y1
@@ -968,18 +878,18 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
                     if (box_name not in output_json):
                         output_json[box_name] = \
                             {
-                                "x1": round(x1.item()),
-                                "y1": round(y1.item()),
-                                "x2": round(x2.item()),
-                                "y2": round(y2.item()),
+                                "x1": round(x1.item() + x_Offset),
+                                "y1": round(y1.item() + y_Offset),
+                                "x2": round(x2.item() + x_Offset),
+                                "y2": round(y2.item() + y_Offset),
                                 "x1_og": round(x1.item()),
                                 "y1_og": round(y1.item()),
                                 "x2_og": round(x2.item()),
                                 "y2_og": round(y2.item()),
                                 "width": round(box_w.item()),
                                 "height": round(box_h.item()),
-                                "center_x": round(center_x),
-                                "center_y": round(center_y),
+                               "center_x": round(((round (x1.item()) +  x_Offset) + (round (x2.item()) +  x_Offset)) / 2),
+                                "center_y": round(((round (y1.item()) +  y_Offset) + (round (y2.item()) +  y_Offset)) / 2),
                                 "window_width": window_width,
                                 "window_height": window_height,
                                 "x_offset": 0,
@@ -992,35 +902,30 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
                                 "thread_id": threading.get_ident(),
                                 "window_idx": window_name
                             }
+                            
                     if opt_Debug:
                         fp.write(classes[int(cls_pred)] + " " + str(round(cls_conf.data.tolist(), 3)) + " "
                                  + str(round(x1.item())) + " " + str(round(y1.item())) + " " + str(round(x2.item())) + " " + str(round(y2.item())) + "\n")
 
-                    calculate_box_offset(opt_x_stride, opt_y_stride, output_json, window_name, box_name)
                     box_idx += 1
 
-                    window = np.array(window)
-                    window = cv2.cvtColor(window, cv2.COLOR_BGR2RGB)
-                    cv2.rectangle(window, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                    cv2.putText(window, box_name + "-" + str(conf), (int(x1), int(y1)), \
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
-                    cv2.imwrite(os.path.join(current_BGW_Path, window_name + ".jpg"), window)
+                    # window = np.array(window)
+                    # window = cv2.cvtColor(window, cv2.COLOR_BGR2RGB)
+                    # cv2.rectangle(window, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    # cv2.putText(window, box_name + "-" + str(conf), (int(x1), int(y1)), \
+                    #         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
+                    # cv2.imwrite(os.path.join(current_BGW_Path, window_name + ".jpg"), window)
 
             window_idx += 1
 
     if opt_Debug:
         fp.close()
 
-    # output_json_copy = copy.deepcopy(output_json)
-    # for box in output_json_copy:
-    #     if output_json_copy[box]["window_idx"] >= window_idx - 50:
-    #         del output_json[box]
-
     if opt_Debug:
         with open(os.path.join(output_path, "detection.json"), "w") as img_json:
             json.dump(output_json, img_json, indent=4)
 
-    obj_no, obj_json = GenerateDetections(opt_Debug, progress_Counter, image, output_path, tile_offsets, tile_strides)
+    obj_no, obj_json = GenerateDetections(opt_Debug, progress_Counter, image, output_path)
     # return obj_json
 
 ###############################################################################
@@ -1062,6 +967,7 @@ def SplitImageByIdx(opt_Debug, image, split):
 
     return tiles, offsets
 
+
 ###############################################################################
 #
 #
@@ -1080,6 +986,32 @@ def SplitImageByHalf(image):
     offsets.append([int(image_width // 2), 0])
     return tiles, offsets
 
+def SplitImageByEight(image):
+    image_width, image_height = image.size
+    image = np.array(image)
+    tiles = []
+    offsets = []
+    
+    M = (image_width // 4) - 1
+    N = (image_height // 2) - 1
+    
+    x1 = y1 = x2 = y2 = 0
+    
+    for i in range(0, 4):
+        x1 = 0
+        x2 = 0
+        y1 = y1 + (i * M)
+        y2 = y1 + M
+        for j in range(0, 2):
+            ss = []
+            x1 = x1 + (j * N)
+            x2 = x1 + N
+            ss = image[y1:y2, x1:x2, :]
+            tiles.append(ss)
+            offsets.append([j * (N), i * (M)])
+    
+    return tiles, offsets
+
 ###############################################################################
 #
 #
@@ -1089,22 +1021,21 @@ def SplitImageByHalf(image):
 def arreq_in_list(myarr, list_arrays):
     return next((True for elem in list_arrays if np.array_equal(elem, myarr)), False)
 
-def SplitImageWithStride(image, split):
+def SplitImageWithStride(image, split, winW, winH):
 
     image_width, image_height = image.size
 
-    tile_size_x = image_width // split # 10000
-    tile_size_y = image_height // split # 10000
+    tile_size_x = image_width // split
+    tile_size_y = image_height // split
 
-    tile_stride_x = int(tile_size_x // 10) # 1000
-    tile_stride_y = int(tile_size_y // 10) # 1000
+    tile_stride_x = winW
+    tile_stride_y = winH
 
     tiles = []
     offsets = []
     tile_sizes = [tile_size_x, tile_size_y]
     tile_strides = [tile_stride_x, tile_stride_y]
 
-    # image = np.array(image)
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("Image width: " + str(image_width))
     print("Image height: " + str(image_height))
@@ -1112,7 +1043,7 @@ def SplitImageWithStride(image, split):
     print("Tile width: " + str(tile_size_x))
     print("Tile height: " + str(tile_size_y))
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    print("X_stride: " + str(tile_stride_x))
+    print("X_stride: " + str(tile_stride_x)) 
     print("Y_stride: " + str(tile_stride_y))
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
@@ -1147,86 +1078,6 @@ def SplitImageWithStride(image, split):
                     tiles.append(image)
                 if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
                     offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
-
-            # elif (image_width <= tile_size_x) and image_height > tile_size_y:
-            #     print(" >>>   222   >>> ")
-            #     if rem_h >= (tile_size_y / 2) or dev_h > 1:
-            #         print(" >>>   222    AA  >>> ")
-
-            #         split_h = (image_height // tile_size_y) + math.ceil(image_height % tile_size_y / tile_size_y)
-
-            #         y1 = 0
-            #         y2 = 0
-            #         for i in range(split_h):
-            #             ss = []
-            #             if i == 0:
-            #                 y1 = 0
-            #             else:
-            #                 y1 = y1 + (tile_size_y) - (tile_stride_y)
-
-            #             y2 = y1 + tile_size_y
-            #             if y2 >= image_height or y2 >= (image_height - (tile_size_y / 2)):
-            #                 y2 = image_height - 1
-
-            #             print("X1: " + str(0))
-            #             print("X2: " + str(image_width - 1))
-            #             print("Y1: " + str(y1))
-            #             print("Y2: " + str(y2))
-            #             ss = image[y1:y2, :, :]
-            #             if not arreq_in_list(ss, tiles):
-            #                 tiles.append(ss)
-            #             if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
-            #                 offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
-
-            #     else:
-            #         print(" >>>   222    BB  >>> ")
-            #         print("X1: " + str(0))
-            #         print("X2: " + str(image_width - 1))
-            #         print("Y1: " + str(0))
-            #         print("Y2: " + str(image_height - 1))
-            #         if image not in tiles:
-            #             tiles.append(image)
-
-            # elif (image_width > tile_size_x) and (image_height <= tile_size_y):
-            #     print(" >>>   333   >>> ")
-            #     if rem_w >= (tile_size_x / 2) or dev_w > 1:
-            #         print(" >>>   333    AA  >>> ")
-
-            #         split_w = (image_width // tile_size_x) + math.ceil(image_width % tile_size_x / tile_size_x)
-
-            #         x1 = 0
-            #         x2 = 0
-            #         for i in range(split_w):
-            #             ss = []
-            #             if i == 0:
-            #                 x1 = 0
-            #             else:
-            #                 x1 = x1 + (tile_size_x) - (tile_stride_x)
-
-            #             x2 = x1 + tile_size_x
-            #             if x2 >= image_width or x2 >= (image_width - (tile_size_x / 2)):
-            #                 x2 = image_width - 1
-            #             print("X1: " + str(x1))
-            #             print("X2: " + str(x2))
-            #             print("Y1: " + str(0))
-            #             print("Y2: " + str(image_height - 1))
-            #             ss = image[:, x1:x2, :]
-            #             if not arreq_in_list(ss, tiles):
-            #                 tiles.append(ss)
-            #             if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
-            #                 offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
-
-            #     else:
-            #         print(" >>>   333     BB  >>> ")
-            #         print("X1: " + str(0))
-            #         print("X2: " + str(image_width - 1))
-            #         print("Y1: " + str(0))
-            #         print("Y2: " + str(image_height - 1))
-
-            #         if not arreq_in_list(ss, tiles):
-            #             tiles.append(ss)
-            #         if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
-            #             offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
 
             if (image_width > tile_size_x) and (image_height > tile_size_y):
                 print(" >>>   444   >>> ")
@@ -1276,20 +1127,7 @@ def SplitImageWithStride(image, split):
 
                             if not arreq_in_list(ss, tiles):
                                 tiles.append(ss)
-                                
-                            # if i == 0 and j == 0:
-                            #     offset = [0, 0]
-                            # elif i == 0 and j > 0:
-                            #     offset = [j * tile_size_x - tile_stride_x, i * tile_size_y + tile_stride_y]
-                            # elif i > 0 and j == 0:
-                            #     offset = [j * tile_size_x + tile_stride_x, i * tile_size_y - tile_stride_y]
-                            # elif i > 0 and j > 0:
-                            #     offset = [ j * tile_size_x - tile_stride_x, i * tile_size_y - tile_stride_y]
-                                   
-                            # if offset not in offsets:
-                            #     offsets.append(offset)
                             
-                                
                             if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
                                 offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
 
@@ -1301,14 +1139,14 @@ def SplitImageWithStride(image, split):
 #
 #
 ###############################################################################
-def SaveSplitImages(images, image_idx):
+def SaveSplitImages(images):
+    image_idx = 0
     for image in images:
-        # io.imsave(os.path.join(opt_output, "img" + str(image_idx) + ".jpg"), image)
         im = Image.fromarray(image, 'RGB')
         im.save(os.path.join(opt_output, os.path.splitext(os.path.basename(opt.image))[0] + "_" + str(image_idx) + ".jpg"))
         image_idx += 1
 
-def CombineDetections(progress_Counter, image_width, image_height, output_path, detection_paths, tile_offsets, tile_strides):
+def CombineDetections(progress_Counter, image_width, image_height, output_path, detection_paths, tile_offsets):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
     combined_json = {}
     box_idx = 0
@@ -1332,7 +1170,7 @@ def CombineDetections(progress_Counter, image_width, image_height, output_path, 
     combined_json = SortDetections(opt.Debug, output_path, combined_json)
 
     for iou in iou_thres:
-        filter_bounding_boxes_optimized(opt.Debug, progress_Counter, image_width, image_height, combined_json, iou, tile_offsets, tile_strides)
+        filter_bounding_boxes_optimized(opt.Debug, progress_Counter, image_width, image_height, combined_json, iou)
 
     with open(os.path.join(output_path, "detection.json"), 'w') as out_fp:
         json.dump(combined_json, out_fp, indent=4)
@@ -1447,13 +1285,9 @@ if __name__ == "__main__":
     if opt_Debug:
         print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
 
-    sub_images, tile_offsets, tile_sizes, tile_strides = SplitImageWithStride(im, opt.split)
-    
-    sub_images, tile_offsets = SplitImageWithStride(im, opt.split)
-    # sub_images, tile_offsets = SplitImageByHalf(im)
-    # SaveSplitImages(sub_images, image_idx)
-    # sub_images = [Image.open(path) for path in glob.glob(os.path.join(opt.output, "*.jpg"))]
-    # sub_images = [im.resize((int(round((im.size)[0], -2)), int(round((im.size)[1], -2)))) for im in sub_images]
+    sub_images, tile_offsets, tile_sizes, tile_strides = SplitImageWithStride(im, opt.split, opt_x_stride, opt_y_stride)
+    # sub_images, tile_offsets = SplitImageByEight(im)
+    SaveSplitImages(sub_images)
 
     for image in sub_images:
         x_offset = 0
@@ -1488,9 +1322,6 @@ if __name__ == "__main__":
             opt_x_stride = int(winW / 2)
             opt_y_stride = int(winH / 2)
 
-            global_var.max_x = (image_width / opt_x_stride)
-            global_var.max_y = (image_height / opt_y_stride)
-
             progress_Counter = 30
             printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
@@ -1500,7 +1331,7 @@ if __name__ == "__main__":
             os.mkdir(output_path)
             
             child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                            opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tile_offsets, tile_strides))
+                                            opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord))
             child_thread.start()
             threads.append(child_thread)
 
@@ -1522,8 +1353,6 @@ if __name__ == "__main__":
                 [winW, winH] = [opt_window_size, opt_window_size]
                 opt_x_stride = int(winW / 2)
                 opt_y_stride = int(winH / 2)
-                global_var.max_x = (image_width / opt_x_stride) - 1
-                global_var.max_y = (image_height / opt_y_stride) - 1
 
                 with tf.gfile.FastGFile(opt_weights_path, 'rb') as f:
                     graph_def = tf.GraphDef()
@@ -1548,12 +1377,10 @@ if __name__ == "__main__":
 
                 child_thread = threading.Thread(target=sliding_windows, args=(
                 opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tile_offsets, tile_strides, sess))
+                opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, sess))
                 child_thread.start()
                 threads.append(child_thread)
 
-                # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                # opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tile_strides, sess)
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
@@ -1567,7 +1394,7 @@ if __name__ == "__main__":
     combined_path = os.path.join(opt.output, "combined_detections")
     os.mkdir(os.path.abspath(combined_path))
 
-    CombineDetections(progress_Counter, image_width, image_height, combined_path, output_paths, tile_offsets, tile_strides)
+    CombineDetections(progress_Counter, image_width, image_height, combined_path, output_paths, tile_offsets)
     combine_start = time.time()
     DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
     combine_end = time.time()
@@ -1587,7 +1414,6 @@ if __name__ == "__main__":
     # t.set_cols_width([80,80])
     t.add_rows(t_Table)
 
-    # txt_summary = os.path.splitext(os.path.basename(tiff_path))[0] + '_Summary.txt'
     with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
         summary.write(t.draw())
     summary.close()
