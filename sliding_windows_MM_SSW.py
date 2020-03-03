@@ -597,7 +597,6 @@ if __name__ == "__main__":
         thread.join()
 
     combined_path = os.path.join(opt.output, "combined_detections")
-
     if os.path.isdir(combined_path):
         shutil.rmtree(combined_path)
     os.mkdir(combined_path)

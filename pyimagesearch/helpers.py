@@ -23,31 +23,35 @@ def pyramid(image, scale=2, minSize=(1250, 1250)):
         yield image
         print("Yield rescaled image of size [" + str(image.shape[1]) + ", " + str(image.shape[0]) + "]")
 
+        
 def sliding_window(image, x_stepSize, y_stepSize, windowSize, x_coord, y_coord):
-    for y in range(0, image.shape[0], windowSize[0] - y_stepSize):
-        for x in range(0, image.shape[1], x_stepSize):
-            # global_var.y_coord += 1
-            y_coord += 1
-
-            if y + windowSize[0] > image.shape[0]:
-                new_x = image.shape[0] - windowSize[0]
-                # if global_var.x_coord < global_var.max_y:
-                #     yield (new_x, y, image[new_x:image.shape[0], x:x + windowSize[0]])
-                if x_coord < global_var.max_y:
-                    yield (new_x, y, image[new_x:image.shape[0], x:x + windowSize[0]], x_coord, y_coord)
-
-            elif x + windowSize[1] > image.shape[1]:
-                new_y = image.shape[1] - windowSize[1]
-                # if global_var.y_coord < global_var.max_x:
-                #     yield (x, new_y, image[y:y + windowSize[1], new_y:image.shape[1]])
-                if y_coord < global_var.max_x:
-                    yield (x, new_y, image[y:y + windowSize[1], new_y:image.shape[1]], x_coord, y_coord)
-
-            else:
-                # if global_var.y_coord < global_var.max_x:
-                #     yield (x, y, image[y:y + windowSize[1], x:x + windowSize[0]])
-                if y_coord < global_var.max_x:
-                    yield (x, y, image[y:y + windowSize[1], x:x + windowSize[0]], x_coord, y_coord)
-
-        y_coord = -1
-        x_coord += 1
+	# slide a window across the image
+	y1 = 0
+	y2 = 0
+	
+	for y in range(0, image.shape[0], y_stepSize):
+	
+		if ((y + (windowSize[1])) > image.shape[0]) :		
+			y1 =(image.shape[0]) - windowSize[1]
+			y2 = image.shape[0]
+		else :
+			y1 = y
+			y2 = y + (windowSize[1])  		
+		
+		x1 = 0 
+		x2 = 0
+		for x in range(0, image.shape[1], x_stepSize):	
+		
+			if ((x + (windowSize[0])) > image.shape[1]) :	
+			   x1 =(image.shape[1]) - windowSize[0]
+			   x2 = image.shape[1]
+			else :
+			   x1 = x
+			   x2 = x + (windowSize[0])  
+		
+			y_coord += 1	
+			yield (x1, y1, image[y1:y2, x1:x2], x_coord, y_coord)
+			
+			
+		y_coord = -1
+		x_coord += 1
