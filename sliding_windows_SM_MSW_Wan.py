@@ -2,7 +2,6 @@ from __future__ import division
 from models import *
 from utils.utils import *
 from utils.datasets import *
-from pyimagesearch.find_neighbors import *
 
 from PIL import Image
 from skimage.io import imread
@@ -23,6 +22,8 @@ import threading
 import copy
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import pathos.multiprocessing as mp
+# import multiprocessing as mp
 
 ###############################################################################
 #
@@ -565,10 +566,6 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, im
     progress_percentage_for_filtering = 10
     total_Box_Count = len(detections_json_list)
     
-    # print("Thread id: " + str(threading.get_ident()))
-    # print("Image Width: " + str(image_width))
-    # print("Image Height: " + str(image_height))
-
 
     for idx in range(len(detections_json_list)):
         progress_Counter = progress_Counter + (progress_percentage_for_filtering / total_Box_Count)
@@ -653,7 +650,7 @@ def draw_bounding_boxes(output_json, image, output_path):
         conf = output_json[box]["conf"]
         color = (255, 0, 0)
 
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
@@ -797,8 +794,6 @@ def GetWeightsType(weights_path):
 ###############################################################################
 def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres,
                     opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tf_session=None):
-    # opt_Debug, im, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres, opt_weights_path,opt_output,opt_x_stride, opt_y_stride ,opt_image,[winW, winH],x_coord, y_coord, sess
-    # opt_nms_thres
     image = np.asarray(image)
     window_idx = 0
     box_idx = 0
@@ -852,7 +847,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
             # window.save(os.path.join(current_BGW_Path, window_name + ".jpg"))
 
             if GetWeightsType(opt_weights_path) == "yolo" or GetWeightsType(opt_weights_path) == "pytorch":
-                detections = detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window, model)
+                detections = detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window_image, model)
 
             if GetWeightsType(opt_weights_path) == "tensorflow":
                 detections = detect_image_tensorflow(opt_window_size, opt_conf_thres, opt_nms_thres, window, tf_session)
@@ -872,9 +867,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
                     box_name = "box" + str(box_idx)
                     box_w = x2 - x1
                     box_h = y2 - y1
-                    center_x = ((x1.item() + x2.item()) / 2)
-                    center_y = ((y1.item() + y2.item()) / 2)
-
+                   
                     if (box_name not in output_json):
                         output_json[box_name] = \
                             {
@@ -888,7 +881,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
                                 "y2_og": round(y2.item()),
                                 "width": round(box_w.item()),
                                 "height": round(box_h.item()),
-                               "center_x": round(((round (x1.item()) +  x_Offset) + (round (x2.item()) +  x_Offset)) / 2),
+                                "center_x": round(((round (x1.item()) +  x_Offset) + (round (x2.item()) +  x_Offset)) / 2),
                                 "center_y": round(((round (y1.item()) +  y_Offset) + (round (y2.item()) +  y_Offset)) / 2),
                                 "window_width": window_width,
                                 "window_height": window_height,
@@ -1028,13 +1021,11 @@ def SplitImageWithStride(image, split, winW, winH):
     tile_size_x = image_width // split
     tile_size_y = image_height // split
 
-    tile_stride_x = winW
-    tile_stride_y = winH
+    tile_stride_x = winW / 2
+    tile_stride_y = winH / 2
 
     tiles = []
     offsets = []
-    tile_sizes = [tile_size_x, tile_size_y]
-    tile_strides = [tile_stride_x, tile_stride_y]
 
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("Image width: " + str(image_width))
@@ -1057,83 +1048,347 @@ def SplitImageWithStride(image, split, winW, winH):
 
     image = np.array(image)
 
-    for i in range(split):
-        x2 = 0
-        x1 = 0
-        y1 = y1 + (i * tile_size_y) - (i * tile_stride_y)
-        y2 = y1 + tile_size_y
+    # for i in range(split):
+    #     x2 = 0
+    #     x1 = 0
+    #     y1 = y1 + (i * tile_size_y) - (i * tile_stride_y)
+    #     y2 = y1 + tile_size_y
 
-        for j in range(split):
-            ss = []
-            x1 = x1 + (j * tile_size_x) - (j * tile_stride_x)
-            x2 = x1 + tile_size_x
+    #     for j in range(split):
+    #         ss = []
+    #         x1 = x1 + (j * tile_size_x) - (j * tile_stride_x)
+    #         x2 = x1 + tile_size_x
 
-            if image_width <= tile_size_x and image_height <= tile_size_y:
-                print(" >>>   1111   >>> ")
+    #         if image_width <= tile_size_x and image_height <= tile_size_y:
+    #             print(" >>>   1111   >>> ")
+    #             print("X1: " + str(0))
+    #             print("X2: " + str(image_width - 1))
+    #             print("Y1: " + str(0))
+    #             print("Y2: " + str(image_height - 1))
+    #             if image not in tiles:
+    #                 tiles.append(image)
+    #             if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
+    #                 offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
+
+
+    if image_width <= tile_size_x and image_height <= tile_size_y :
+        print(" >>>   1111   >>> ")
+        print("X1: " + str(0))
+        print("X2: " + str(image_width-1))            
+        print("Y1: " + str(0))
+        print("Y2: " + str(image_height-1))   
+        tiles.append(image)
+        offsets.append([0, 0])
+    
+    elif (image_width <= tile_size_x) and image_height > tile_size_y :
+        print(" >>>   222   >>> ")    
+        if rem_h >= (tile_size_y/2) or dev_h>1 :
+            print(" >>>   222    AA  >>> ")    
+            
+            split_h = (image_height//tile_size_y)+math.ceil(image_height%tile_size_y/tile_size_y)
+
+            y1 = 0
+            y2 = 0
+            for i in range(split_h):
+                ss = []
+                if i == 0 : 
+                    y1 = 0 
+                else:
+                    y1 = y1 + (tile_size_y) - (tile_stride_y)
+                   
+                y2 = y1 + tile_size_y
+                if y2 >= image_height or y2 >=(image_height-(tile_size_y/2)) : 
+                    y2 = image_height -1
+                
                 print("X1: " + str(0))
-                print("X2: " + str(image_width - 1))
+                print("X2: " + str(image_width-1))            
+                print("Y1: " + str(y1))
+                print("Y2: " + str(y2))
+                ss = image[y1:y2, 0:(image_width-1), :]                    
+                tiles.append(ss)
+                offsets.append([y1, 0])
+    
+        else:
+            print(" >>>   222    BB  >>> ")    
+            print("X1: " + str(0))
+            print("X2: " + str(image_width-1))            
+            print("Y1: " + str(0))
+            print("Y2: " + str(image_height-1))      
+            tiles.append(image)
+            offsets.append([0, 0])
+        
+    elif (image_width > tile_size_x) and ( image_height <= tile_size_y ) :
+        print("g >>>   333   >>> ")      
+        if rem_w >= (tile_size_x / 2) or dev_w>1:
+            print(" >>>   333    AA  >>> ")    
+            
+            split_w = (image_width//tile_size_x)+math.ceil(image_width%tile_size_x/tile_size_x)
+            
+            x1 = 0
+            x2 = 0
+            for i in range(split_w):
+              
+                ss = [] 
+#                
+                if i == 0 : 
+                    x1 = 0 
+                else:
+                    x1 = x1 + (tile_size_x) - (tile_stride_x)
+                                      
+                x2 = x1 + tile_size_x
+                if x2 >= image_width or x2 >=(image_width-(tile_size_x/2)): 
+                    x2 = image_width -1                          
+                print("X1: " + str(x1))
+                print("X2: " + str(x2))            
                 print("Y1: " + str(0))
-                print("Y2: " + str(image_height - 1))
-                if image not in tiles:
-                    tiles.append(image)
-                if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
-                    offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
+                print("Y2: " + str(image_height-1))         
+                ss = image[0:(image_height-1), x1:x2, :]
+                tiles.append(ss)
+                offsets.append([0, x1])
+                # offsets.append([j * (window_width - x_stride), i * (window_height - y_stride)])
+    
+        else:
+            print(" >>>   333     BB  >>> ")    
+            print("X1: " + str(0))
+            print("X2: " + str(image_width-1))            
+            print("Y1: " + str(0))
+            print("Y2: " + str(image_height-1))      
 
-            if (image_width > tile_size_x) and (image_height > tile_size_y):
-                print(" >>>   444   >>> ")
-                if (rem_w > (tile_size_x / 2) and rem_h > (tile_size_y / 2)) or (dev_w > 1 and dev_h > 1):
-                    print(" >>>   444  AAA  >>> ")
+            tiles.append(image)
+            offsets.append([0, 0])
+
+
+    elif (image_width > tile_size_x) and (image_height > tile_size_y):
+        print(" >>>   444   >>> ")
+        if (rem_w > (tile_size_x / 2) and rem_h > (tile_size_y / 2)) or (dev_w > 1 and dev_h > 1):
+            print(" >>>   444  AAA  >>> ")
+            y1 = 0
+            y2 = 0
+            x1 = 0
+            x2 = 0
+            split_h = (image_height // tile_size_y) + math.ceil(image_height % tile_size_y / tile_size_y)
+            split_w = (image_width // tile_size_x) + math.ceil(image_width % tile_size_x / tile_size_x)
+
+            print("Split_H: " + str(split_h))
+            print("Split_width: " + str(split_w))
+
+            for i in range(split_h):
+                print(" >>>   444  BBB >>> ")
+                x2 = 0
+                x1 = 0
+
+                if i == 0:
                     y1 = 0
-                    y2 = 0
+                else:
+                    y1 = y1 + (tile_size_y) - (tile_stride_y)
 
-                    split_h = (image_height // tile_size_y) + math.ceil(image_height % tile_size_y / tile_size_y)
-                    split_w = (image_width // tile_size_x) + math.ceil(image_width % tile_size_x / tile_size_x)
+                y2 = y1 + tile_size_y
+                if y2 >= image_height or y2 >= (image_height - (tile_size_y / 2)):
+                    y2 = image_height - 1
 
-                    print("Split_H: " + str(split_h))
-                    print("Split_width: " + str(split_w))
+                for j in range(split_w):
+                    print(" >>>   444  CCC >>> ")
+                    ss = []
 
-                    for i in range(split_h):
-                        print(" >>>   444  BBB >>> ")
-                        x2 = 0
+                    if j == 0:
                         x1 = 0
+                    else:
+                        x1 = x1 + (tile_size_x) - (tile_stride_x)
 
-                        if i == 0:
-                            y1 = 0
-                        else:
-                            y1 = y1 + (tile_size_y) - (tile_stride_y)
+                    x2 = x1 + tile_size_x
+                    if x2 >= image_width or x2 >= (image_width - (tile_size_x / 2)):
+                        x2 = image_width - 1
 
-                        y2 = y1 + tile_size_y
-                        if y2 >= image_height or y2 >= (image_height - (tile_size_y / 2)):
-                            y2 = image_height - 1
+                    print("X1: " + str(x1))
+                    print("X2: " + str(x2))
+                    print("Y1: " + str(y1))
+                    print("Y2: " + str(y2))
+                    ss = image[int(y1):int(y2), int(x1):int(x2), :]
 
-                        for j in range(split_w):
-                            print(" >>>   444  CCC >>> ")
-                            ss = []
+                    if not arreq_in_list(ss, tiles):
+                        tiles.append(ss)
+                    
+                    if not arreq_in_list([int(j * (tile_size_x - tile_stride_x)), int(i * (tile_size_y - tile_stride_y))], offsets):
+                        offsets.append([int(j * (tile_size_x - tile_stride_x)), int(i * (tile_size_y - tile_stride_y))])
 
-                            if j == 0:
-                                x1 = 0
-                            else:
-                                x1 = x1 + (tile_size_x) - (tile_stride_x)
+    return tiles, offsets
+    
 
-                            x2 = x1 + tile_size_x
-                            if x2 >= image_width or x2 >= (image_width - (tile_size_x / 2)):
-                                x2 = image_width - 1
+# def SplitImageWithStride(image, split, winW, winH):
+    
+#     image_width, image_height = image.size
+#     split = int (math.pow(2,(split-1)))
 
-                            print("X1: " + str(x1))
-                            print("X2: " + str(x2))
-                            print("Y1: " + str(y1))
-                            print("Y2: " + str(y2))
-                            ss = image[y1:y2, x1:x2, :]
+#     tile_size_x = image_width // split
+#     tile_size_y = image_height // split
 
-                            if not arreq_in_list(ss, tiles):
-                                tiles.append(ss)
-                            
-                            if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
-                                offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
+# 	
+#     tile_stride_x = int(winW / 2)
+#     tile_stride_y = int(winH / 2)
 
-    return tiles, offsets, tile_sizes, tile_strides
+    
+#     tiles = []
+#     offsets = []
+#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+#     print("Image width: " + str(image_width))
+#     print("Image height: " + str(image_height))
+#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+#     print("Tile width: " + str(tile_size_x))
+#     print("Tike height: " + str(tile_size_y))
+#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+#     print("X_stride: " + str(tile_stride_x))
+#     print("Y_stride: " + str(tile_stride_y))
+#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    
+#     rem_w = image_width%tile_size_x
+#     rem_h = image_height%tile_size_y
 
+#     dev_w = image_width/tile_size_x
+#     dev_h = image_height/tile_size_y
+        
+#     image = np.array(image)
+    
+#     if image_width <= tile_size_x and image_height <= tile_size_y :
+#         print(" >>>   1111   >>> ")
+#         print("X1: " + str(0))
+#         print("X2: " + str(image_width-1))            
+#         print("Y1: " + str(0))
+#         print("Y2: " + str(image_height-1))   
+#         tiles.append(image)
+#         offsets.append([0, 0])
+#         # return  tiles
+    
+#     elif (image_width <= tile_size_x ) and image_height > tile_size_y :
+#         print(" >>>   222   >>> ")    
+#         if rem_h >= (tile_size_y/2) or dev_h>1 :
+#             print(" >>>   222    AA  >>> ")    
+            
+#             split_h = (image_height//tile_size_y)+math.ceil(image_height%tile_size_y/tile_size_y)
 
+#             y1 = 0
+#             y2 = 0
+#             for i in range(split_h):
+#                 ss = []
+#                 if i == 0 : 
+#                    y1 = 0 
+#                 else:
+#                    y1 = y1 + (tile_size_y) - (tile_stride_y)
+                   
+#                 y2 = y1 + tile_size_y
+#                 if y2 >= image_height or y2 >=(image_height-(tile_size_y/2)) : 
+#                    y2 = image_height -1
+                
+#                 print("X1: " + str(0))
+#                 print("X2: " + str(image_width-1))            
+#                 print("Y1: " + str(y1))
+#                 print("Y2: " + str(y2))
+#                 ss = image[y1:y2, 0:(image_width-1), :]                    
+#                 # ss = tiles.append(image)
+#                 tiles.append(ss)
+#                 offsets.append([y1, 0])
+    
+#             #return tiles
+#         else:
+#             print(" >>>   222    BB  >>> ")    
+#             print("X1: " + str(0))
+#             print("X2: " + str(image_width-1))            
+#             print("Y1: " + str(0))
+#             print("Y2: " + str(image_height-1))      
+#             tiles.append(image)
+#             offsets.append([0, 0])
+#             #return tiles
+        
+#     elif (image_width > tile_size_x) and ( image_height <= tile_size_y ) :
+#         print("g >>>   333   >>> ")      
+#         if rem_w >= (tile_size_x / 2) or dev_w>1:
+#             print(" >>>   333    AA  >>> ")    
+            
+#             split_w = (image_width//tile_size_x)+math.ceil(image_width%tile_size_x/tile_size_x)
+            
+#             x1 = 0
+#             x2 = 0
+#             for i in range(split_w):
+              
+#                 ss = [] 
+# #                
+#                 if i == 0 : 
+#                    x1 = 0 
+#                 else:
+#                    x1 = x1 + (tile_size_x) - (tile_stride_x)
+                                      
+#                 x2 = x1 + tile_size_x
+#                 if x2 >= image_width or x2 >=(image_width-(tile_size_x/2)): 
+#                    x2 = image_width -1                          
+#                 print("X1: " + str(x1))
+#                 print("X2: " + str(x2))            
+#                 print("Y1: " + str(0))
+#                 print("Y2: " + str(image_height-1))         
+#                 ss = image[0:(image_height-1), x1:x2, :]
+#                 tiles.append(ss)
+#                 offsets.append([0, x1])
+#                 # offsets.append([j * (window_width - x_stride), i * (window_height - y_stride)])
+    
+#             #return tiles
+#         else:
+#             print(" >>>   333     BB  >>> ")    
+#             print("X1: " + str(0))
+#             print("X2: " + str(image_width-1))            
+#             print("Y1: " + str(0))
+#             print("Y2: " + str(image_height-1))      
+
+#             tiles.append(image)
+#             offsets.append([0, 0])
+
+#             #return tiles
+    
+#     elif (image_width > tile_size_x ) and (image_height > tile_size_x ):
+#         print(" >>>   444   >>> ")      
+#         if (rem_w > (tile_size_x / 2) and rem_h > (tile_size_y / 2)) or ( dev_w>1 and dev_h>1):
+#             print(" >>>   444  AAA  >>> ")  
+#             y1 = 0
+#             y2 = 0
+            
+#             split_h = (image_height//tile_size_y)+math.ceil(image_height%tile_size_y/tile_size_y)
+#             split_w =  (image_width//tile_size_x)+math.ceil(image_width%tile_size_x/tile_size_x)
+
+#             for i in range(split_h):
+#                 print(" >>>   444  BBB >>> ")  
+#                 x2 = 0
+#                 x1 = 0
+                
+#                 if i == 0 : 
+#                    y1 = 0 
+#                 else:
+#                    y1 = y1 + (tile_size_y) - (tile_stride_y)
+
+#                 y2 = y1 + tile_size_y
+#                 if y2 >= image_height  or y2 >=(image_height-(tile_size_y/2))  : 
+#                    y2 = image_height -1 
+# 				   
+#                 for j in range(split_w):
+#                     print(" >>>   444  CCC >>> ")  
+#                     ss = []
+                    
+#                     if j == 0  : 
+#                        x1 = 0 
+#                     else:
+#                        x1 = x1 + (tile_size_x) - (tile_stride_x)
+
+#                     x2 = x1 + tile_size_x
+#                     if x2 >= image_width  or x2 >=(image_width-(tile_size_x/2)) : 
+#                        x2 = image_width -1 
+                       
+#                     print("X1: " + str(x1))
+#                     print("X2: " + str(x2))            
+#                     print("Y1: " + str(y1))
+#                     print("Y2: " + str(y2))                              
+#                     ss = image[y1:y2, x1:x2, :]
+# 					
+#                     tiles.append(ss)
+#                     offsets.append([y1, x1])
+    
+#     return tiles, offsets
+    
 ###############################################################################
 #
 #
@@ -1148,6 +1403,7 @@ def SaveSplitImages(images):
 
 def CombineDetections(progress_Counter, image_width, image_height, output_path, detection_paths, tile_offsets):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
+    # detection_jsons = [detection_jsons[1]]
     combined_json = {}
     box_idx = 0
     detection_json_index = 0
@@ -1166,7 +1422,7 @@ def CombineDetections(progress_Counter, image_width, image_height, output_path, 
 
         detection_json_index += 1
 
-    iou_thres = [0.5, 0.4, 0.3, 0.2, 0.1]
+    iou_thres = [0.5]
     combined_json = SortDetections(opt.Debug, output_path, combined_json)
 
     for iou in iou_thres:
@@ -1285,9 +1541,11 @@ if __name__ == "__main__":
     if opt_Debug:
         print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
 
-    sub_images, tile_offsets, tile_sizes, tile_strides = SplitImageWithStride(im, opt.split, opt_x_stride, opt_y_stride)
+    sub_images, tile_offsets = SplitImageWithStride(im, opt.split, opt_x_stride, opt_y_stride)
     # sub_images, tile_offsets = SplitImageByEight(im)
-    SaveSplitImages(sub_images)
+    # SaveSplitImages(sub_images)
+
+    pool = mp.Pool(processes=opt.split)
 
     for image in sub_images:
         x_offset = 0
@@ -1330,7 +1588,7 @@ if __name__ == "__main__":
             output_paths.append(output_path)
             os.mkdir(output_path)
             
-            child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            child_thread = mp.Process(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
                                             opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord))
             child_thread.start()
             threads.append(child_thread)
@@ -1375,48 +1633,51 @@ if __name__ == "__main__":
                 output_paths.append(output_path)
                 os.mkdir(output_path)
 
-                child_thread = threading.Thread(target=sliding_windows, args=(
-                opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, sess))
-                child_thread.start()
-                threads.append(child_thread)
+                result = pool.starmap(sliding_windows, [(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, sess)])
+                
+                # child_thread = threading.Thread(target=sliding_windows, args=(
+                # opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                # opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, sess))
+                # child_thread.start()
+                # threads.append(child_thread)
 
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
 
-    for thread in threads:
-        thread.join()
+    # for thread in threads:
+    #     thread.join()
 
-    progress_Counter = 75
-    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+    # progress_Counter = 75
+    # printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-    combined_path = os.path.join(opt.output, "combined_detections")
-    os.mkdir(os.path.abspath(combined_path))
+    # combined_path = os.path.join(opt.output, "combined_detections")
+    # os.mkdir(os.path.abspath(combined_path))
 
-    CombineDetections(progress_Counter, image_width, image_height, combined_path, output_paths, tile_offsets)
-    combine_start = time.time()
-    DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
-    combine_end = time.time()
+    # # CombineDetections(progress_Counter, image_width, image_height, combined_path, output_paths, tile_offsets)
+    # # combine_start = time.time()
+    # # DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
+    # # combine_end = time.time()
 
-    runtime_end = time.time()
+    # runtime_end = time.time()
 
-    if opt_Debug:
-        print("Total runtime: " + str(runtime_end - runtime_start))
+    # if opt_Debug:
+    #     print("Total runtime: " + str(runtime_end - runtime_start))
 
-    main_end = time.time()
-    t_Table.append(['      Total Time  Elapsed     ', (main_end - main_start)])
-    progress_Counter = 100
-    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-    time.sleep(0.1)
+    # main_end = time.time()
+    # t_Table.append(['      Total Time  Elapsed     ', (main_end - main_start)])
+    # progress_Counter = 100
+    # printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+    # time.sleep(0.1)
 
-    t = Texttable(180)
-    # t.set_cols_width([80,80])
-    t.add_rows(t_Table)
+    # t = Texttable(180)
+    # # t.set_cols_width([80,80])
+    # t.add_rows(t_Table)
 
-    with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
-        summary.write(t.draw())
-    summary.close()
+    # with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
+    #     summary.write(t.draw())
+    # summary.close()
 
-    print(colored(t.draw(), 'yellow', attrs=['bold']))
-    time.sleep(5)
+    # print(colored(t.draw(), 'yellow', attrs=['bold']))
+    # time.sleep(5)
