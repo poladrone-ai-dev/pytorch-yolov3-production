@@ -20,7 +20,6 @@ import threading
 import copy
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import threading
 
 ###############################################################################
 #
@@ -28,7 +27,6 @@ import threading
 #
 ###############################################################################
 import math
-import reverse_geocoder as rg
 import tifffile as tiff
 
 from termcolor import colored
@@ -38,6 +36,8 @@ import osgeo.ogr, osgeo.osr
 from osgeo import ogr
 from osgeo import gdal
 from os import system, name
+import geocoder
+
 
 ###############################################################################
 #
@@ -497,11 +497,12 @@ def ConvertFullmap(temp_Folder, tiff_Path, down_scale):
 
     coordinates = (LAT_center, LONG_center)
 
-    cord = reverseGeocode(coordinates)
+    # cord = reverseGeocode(coordinates)
+    cord = geocoder.osm(coordinates, method='reverse')
 
     t_Table.append(['Map Center Location Lat/Long ', '( ' + str(LAT_center) + ' , ' + str(LONG_center) + ' )'])
     t_Table.append(['Map Location Details ',
-                    'City: ' + cord[0]["name"] + ", " + 'State: ' + cord[0]["admin1"] + ", " + 'Country: ' + cord[0]["cc"]])
+                    'City: ' + cord.city + ", " + 'State: ' + cord.state + ", " + 'Country: ' + cord.country])
 
     rescale = down_scale
 
