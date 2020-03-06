@@ -6,8 +6,6 @@ from utils.datasets import *
 from PIL import Image
 from skimage.io import imread
 from pyimagesearch.helpers import sliding_window
-from pyimagesearch.helpers import pyramid
-
 from skimage import io
 import os
 import sys
@@ -22,8 +20,7 @@ import threading
 import copy
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import pathos.multiprocessing as mp
-# import multiprocessing as mp
+import threading
 
 ###############################################################################
 #
@@ -186,9 +183,10 @@ def utmToLatLon(x, y, utmz, north):
 
 
 ###############################################################################
+# Calculates the intersection over union between two boxes
 #
-#
-#
+# Parameters:
+# boxA (dict): box 
 ###############################################################################
 def calculate_iou(boxA, boxB):
     xA = max(boxA["x1"], boxB["x1"])
@@ -205,9 +203,17 @@ def calculate_iou(boxA, boxB):
 
 
 ###############################################################################
+# Window detection with tensorflow model
 #
-#
-#
+# Parameters:
+# opt_window_size (int): size of detection window
+# opt_conf_thres (float): confidence threshold to register a positive detection
+# opt_nms_thres (float): non maximal suppression threshold
+# window (PIL.Image): Pillow image representation of window
+# sess (tf.Session): Tensorflow session to run inference with
+
+# Returns:
+# output_tensor (tf.Tensor): Tensor representation of window detection
 ###############################################################################
 def detect_image_tensorflow(opt_window_size, opt_conf_thres, opt_nms_thres, window, sess=None):
     nms_thres = opt_nms_thres
@@ -246,9 +252,18 @@ def detect_image_tensorflow(opt_window_size, opt_conf_thres, opt_nms_thres, wind
 
 
 ###############################################################################
+#  Image detection function with PyTorch models. Applies resize, padding, and
+#  to Tensor transformations, before running detection and NMS
 #
-#
-#
+# Paramenters:
+# opt_window_size (int): size of the detection window
+# opt_conf_thres (float): confidence threshold for registering a positive detection
+# opt_nms_thres (float): non maximal suppression threshold
+# window (PIL.Image): PIL image representation of detection window
+# model (torch.nn): PyTorch model for detection
+    
+# Returns:
+# detections[0] (torch.Tensor): tensor representation of window detection
 ###############################################################################
 def detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window, model):
     img_size = 416  # don't change this, because the model is trained on 416 x 416 images
@@ -283,7 +298,13 @@ def detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window, model):
 ###############################################################################
 # Sorts the json values in ascending value, with x1 having higher priority, followed by y1 having priority
 #
-#
+# Parameters:
+# opt_Debug (bool): specifies whether to run this function in debug mode
+# opt_output (string): output path to save the sorted detections
+# detections (dict): bbox detections in json format
+
+# Returns:
+# sorted_detections_list (dict): detection dict sorted in ascending order
 ###############################################################################
 def SortDetections(opt_Debug, opt_output, detections):
     detections_list = []
@@ -303,19 +324,31 @@ def SortDetections(opt_Debug, opt_output, detections):
     if opt_Debug:
         with open(os.path.join(opt_output, "detections_sorted.json"), 'w') as json_fp:
             json.dump(sorted_detections_dict, json_fp, indent=4)
-
+            
     return sorted_detections_dict
 
 
 ###############################################################################
-#
-#
-#
+# Converts and exports detection json to a .csv format (Redwan).
+# Returns the csv values in the form of GPS fields
+#    
+# Parameters:
+# gen_Csv (bool): whether to generate csv outputs
+# detection_json (dict): detection json file in memory
+# output_path (str): path where the text file will be exported to
+# xOrigin (int): 
+# yOrigin (int):
+# pixelWidth (int):
+# pixelHeight (int):
+# rescale (float): 
+    
+# Returns
+# gps_Fields (list): CSV output in GPS format
 ###############################################################################
 
-def ExportJsonToCSV2(gen_Csv, detection_json, output_path, image_width, image_height, xOrigin, yOrigin, pixelWidth, pixelHeight, rescale):
-    csv_file = os.path.splitext(os.path.basename(output_path))[0] + '_detection_filtered.csv'
-
+def ExportJsonToCSV2(gen_Csv, detection_json, output_path, xOrigin, yOrigin, pixelWidth, pixelHeight, rescale):
+    # csv_file = os.path.splitext(os.path.basename(output_path))[0] + '_detection_filtered.csv'
+    csv_file = "detections_filtered.csv"
     gps_Fields = []
 
     for box in detection_json:
@@ -352,9 +385,11 @@ def ExportJsonToCSV2(gen_Csv, detection_json, output_path, image_width, image_he
 
 
 ###############################################################################
+# Converts and exports detectin json to .csv format (Brian)
 #
-#
-#
+# Parameters:
+# detection_json (dict): detection json in memory
+# output_path (str): path to export csv file to 
 ###############################################################################
 def ExportJsonToCSV(detection_json, output_path):
     csv_file = os.path.splitext(os.path.basename(output_path))[0] + '_detection_filtered.csv'
@@ -378,9 +413,11 @@ def ExportJsonToCSV(detection_json, output_path):
 
 
 ###############################################################################
+# Converts and exports detection json to a .txt format
 #
-#
-#
+# Parameters:
+# detection_json (dict): detection json file in memory
+# output_path (str): path where the text file will be exported to
 ###############################################################################
 def ExportJsonToText(detection_json, output_path):
     export_Json_to_Text_start = time.time()
@@ -405,7 +442,7 @@ def ExportJsonToText(detection_json, output_path):
 #
 #
 ###############################################################################
-def ConvertFUllmap(temp_Folder, tiff_Path, down_scale):
+def ConvertFullmap(temp_Folder, tiff_Path, down_scale):
     filename = tiff_Path
 
     try:
@@ -498,23 +535,29 @@ def ConvertFUllmap(temp_Folder, tiff_Path, down_scale):
 
 
 ###############################################################################
-#
-#
-#
+# Creates .shp file from gps coordinates
+# 
+# Parameters:
+# tiff_path (str): temporary path where the TIF file is stored
+# gps_Fields (list): list of gps coordinates 
+# proj_type (int): coordinate projection type
+    
+# Precondition: gps_fields are correct, proj_type is an existing projection type
 ###############################################################################
 def ExportShpProj(tiff_path, gps_Fields, proj_type):
     export_shp_proj_start = time.time()
 
     EPSG_code = proj_type
-
     shp_file = os.path.splitext(os.path.basename(tiff_path))[0] + '.shp'
-    full_shp_path = tiff_path + '\\' + shp_file
+    full_shp_path = tiff_path + "\\" +  shp_file
     export_shp = full_shp_path
 
     spatialReference = osgeo.osr.SpatialReference()
     spatialReference.ImportFromEPSG(int(EPSG_code))
+    print(spatialReference)
     driver = osgeo.ogr.GetDriverByName('ESRI Shapefile')
     shapeData = driver.CreateDataSource(export_shp)
+    print(shapeData)
     layer = shapeData.CreateLayer('layer', spatialReference, osgeo.ogr.wkbPoint)
     layer_defn = layer.GetLayerDefn()
     index = 0
@@ -547,11 +590,18 @@ def ExportShpProj(tiff_path, gps_Fields, proj_type):
     t_Table.append(['Export Results to Shp Proj ', (export_shp_proj_end - export_shp_proj_start)])
 
 ###############################################################################
-#
-#
-#
+# Filters out overlapping bounding boxes, taking only the bounding box with the highest confidence value.
+# 
+# Parameters:
+# opt_Debug (bool): whether to run the function in debug mode
+# progress_Counter (int): progress bar counter ranging from 0 to 100
+# detections_json (dict): dictionary containing the detections info of every bounding boxes
+# iou_thres (float): intersection over union threshold
+    
+# Returns:
+# detections_json (dict): filtered detection json
 ###############################################################################
-def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, image_height, detections_json, iou_thres):
+def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json, iou_thres):
     bounding_boxes_filter_start = time.time()
 
     deleted_boxes = []
@@ -613,27 +663,22 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, im
     if opt_Debug:
         print("Number of boxes after filtering: " + str(len(detections_json.keys())))
 
-    # print("Reindexing bounding boxes...")
-
-    # box_count = 0
-    # new_detections_json = {}
-    # for box in detections_json:
-    #     if (int(detections_json[box]["x2"]) < (image_width - 1)) and (int(detections_json[box]["y2"]) < (image_height - 1)):
-    #         new_detections_json["box" + str(box_count)] = detections_json[box]
-    #         box_count += 1
-
     bounding_boxes_filter_end = time.time()
 
     # t_Table.append(['Total Number of Trees Found  ', (len(new_detections_json.keys()) + 1)])
 
     return detections_json
-    #return new_detections_json
 
 
 ###############################################################################
+# Draws bounding boxes on the image with OpenCV, based on coordinates from detection json
 #
-#
-#
+# Parameters:
+# output_json(dict): detection json info for each bounding box
+# image (np array): numpy array representation of the image
+# output_path (str): path to save the output image
+    
+# Pre-Cond: bounding boxes coordinates in output_json are within the dimensions of the image
 ###############################################################################
 def draw_bounding_boxes(output_json, image, output_path):
     draw_bounding_boxes_start = time.time()
@@ -659,9 +704,12 @@ def draw_bounding_boxes(output_json, image, output_path):
     # t_Table.append(['Drawing Results -- Boxes  ', (draw_bounding_boxes_end - draw_bounding_boxes_start) ])
 
 ###############################################################################
+# draws out center points at tree crowns
 #
-#
-#
+# Parameters
+# output_json(dict): detection json info for each bounding box
+# image (np array): numpy array representation of the image
+# output_path (str): path to save the output image
 ###############################################################################
 def draw_circles(output_json, image, output_path):
     draw_circles_start = time.time()
@@ -674,11 +722,16 @@ def draw_circles(output_json, image, output_path):
     draw_circles_end = time.time()
     # t_Table.append(['Drawing Results -- Circles  ', (draw_circles_end - draw_circles_start) ])
 
-
 ###############################################################################
-#
-#
-#
+# Check each sliding windows to see if most of the pixels are black.
+# 
+# Parameters:
+# window (generator): a generator representation of the current sliding window
+# winW (int): width of the sliding window
+# winW (int): height of the sliding window
+    
+# Returns:
+# (bool): whether most of the pixels in sliding window is black
 ###############################################################################
 def IsBackgroundMostlyBlack(window, winW, winH):
     try:
@@ -697,9 +750,17 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 
 
 ###############################################################################
+# Writes detections (before and after filtering) in json, csv, text, and output image.
+#  
+# Parameters:
+# opt_Debug (bool): whether to run the function in debug mode
+# progress_Counter (int): progress count from 0 to 100
+# image (np array): numpy array representation of image
+# output_path (str): path to write the detection output files
 #
-#
-#
+# Returns:
+# (int) length of the detection json
+# input_json(dict): detection json (before filter)
 ###############################################################################
 def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
     threads = []
@@ -727,7 +788,7 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
         filtering_start = time.time()
 
         for iou_thres in iou_thres_range:
-            input_json = filter_bounding_boxes_optimized(opt_Debug, progress_Counter, image_width, image_height, input_json, iou_thres)
+            input_json = filter_bounding_boxes_optimized(opt_Debug, progress_Counter, input_json, iou_thres)
 
         filtering_end = time.time()
 
@@ -764,9 +825,13 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
     return len(input_json), input_json
 
 ###############################################################################
+# Returns the weight type based on the file extension
 #
+# Parameters:
+# weights_path (str): The path to the weight file
 #
-#
+# Returns:
+# string with the weights type name. if no valid path is supplied, return None
 ###############################################################################
 def GetWeightsType(weights_path):
     if weights_path.endswith(".weights"):
@@ -781,19 +846,55 @@ def GetWeightsType(weights_path):
     return None
 
 ###############################################################################
+# Initialize and returns a tensorflow session. Called inside threads/processes 
+# because sessions cannot be pickled. 
 #
-#
-#
+# Parameters:
+# weights_path (str): path to tensorflow weights
+#    
+# Returns:
+# sess (tf.Session): tensorflow session to run detections
 ###############################################################################
+def InitTFSess(weights_path):
+    with tf.gfile.FastGFile(weights_path, 'rb') as f:
+       graph_def = tf.GraphDef()
+       graph_def.ParseFromString(f.read())
 
+    config = tf.ConfigProto(
+        gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7,             
+            )
+    )
+    
+    config.intra_op_parallelism_threads = 18
+    config.inter_op_parallelism_threads = 18
+    config.gpu_options.allow_growth = True
+
+    sess = tf.Session(config=config)
+    sess.graph.as_default()
+    tf.import_graph_def(graph_def, name='')
+    
+    return sess
 
 ###############################################################################
+# Apply sliding windows on image
 #
-#
-#
+# Parameters:
+# opt_Debug (bool): whether to run the function in debug mode
+# image (np array): numpy array representation of image
+# progress_Counter (int): progress counter from 0 to 100
+# classes (list): image classes to be detected
+# opt_img_size (int): the size of the image or image tiles
+# opt_window_size (int): dimensions of the sliding windows
+# opt_conf_thres (int): confidence threshold for detections
+# opt_nms_thres (int): non-maximal suppression threshold for detections
+# opt_weights_path (str): path to the trained weights
+# output_path (str): path to write detection outputs
+# opt_x_stride (int): sliding window stride in x axis
+# opt_y_stride (int): sliding window stride in y axis
 ###############################################################################
 def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres,
-                    opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, tf_session=None):
+                    opt_nms_thres, opt_weights_path, output_path, opt_x_stride, opt_y_stride):
+    
     image = np.asarray(image)
     window_idx = 0
     box_idx = 0
@@ -816,7 +917,14 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
     im_h = (image.shape[0])
     total_Win_Count = int(math.modf(im_w / (winW - (winW - (opt_x_stride))))[1]) * int(math.modf(im_h / (winH - (winH - (opt_y_stride))))[1])
 
-    # for resized in pyramid(image, scale=2.0, minSize=windows_minSize):
+    if GetWeightsType(opt_weights_path) == "tensorflow":
+        tf_session = InitTFSess(opt_weights_path)
+
+    x_coord = 0
+    y_coord = 0
+
+    inference_start = time.time()
+
     for (x_Offset, y_Offset, window, x_coord, y_coord) in sliding_window(image, x_stepSize=opt_x_stride, y_stepSize=opt_y_stride,
                                                            windowSize=[winW, winH], x_coord=x_coord, y_coord=y_coord):
         progress_Counter = progress_Counter + (progress_percentage_for_SW / total_Win_Count)
@@ -829,23 +937,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
             continue
 
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
-            # if opt_Debug:
-                # print("Performing detection on " + window_name + ".")
-                # window_image.save(os.path.join(current_BGW_Path, window_name + ".jpg"))
-                # cv2.imwrite(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
-                # io.imsave(os.path.join(output_path, "sliding_windows", window_name + ".jpg"), window)
-
-            # what is this portion of code doing?
-            # hsv = cv2.cvtColor(np.asarray(window_image), cv2.COLOR_BGR2HSV)
-            # lower_red = np.array([40, 40, 40])
-            # upper_red = np.array([95, 255, 255])
-            # mask1 = cv2.inRange(hsv, lower_red, upper_red)
-            # mask1 = cv2.morphologyEx(mask1, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8), iterations=2) # erosion followed by dilation, removes noise
-            # mask1 = cv2.dilate(mask1, np.ones((17, 17), np.uint8), iterations=2) # why dilate twice?
-            # res1 = cv2.bitwise_and(np.asarray(window_image), np.asarray(window_image), mask=mask1)
-            # window = Image.fromarray(res1, 'RGB')
-            # window.save(os.path.join(current_BGW_Path, window_name + ".jpg"))
-
+            
             if GetWeightsType(opt_weights_path) == "yolo" or GetWeightsType(opt_weights_path) == "pytorch":
                 detections = detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window_image, model)
 
@@ -902,14 +994,12 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
 
                     box_idx += 1
 
-                    # window = np.array(window)
-                    # window = cv2.cvtColor(window, cv2.COLOR_BGR2RGB)
-                    # cv2.rectangle(window, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                    # cv2.putText(window, box_name + "-" + str(conf), (int(x1), int(y1)), \
-                    #         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
-                    # cv2.imwrite(os.path.join(current_BGW_Path, window_name + ".jpg"), window)
-
             window_idx += 1
+
+    inference_end = time.time()
+    
+    # print("Time taken for inferencing: " + str(inference_end - inference_start) + "")
+    t_Table.append(['Total Inferencing Time (Thread ' + str(threading.get_ident()) + ")  ", (inference_end - inference_start)])
 
     if opt_Debug:
         fp.close()
@@ -919,10 +1009,9 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
             json.dump(output_json, img_json, indent=4)
 
     obj_no, obj_json = GenerateDetections(opt_Debug, progress_Counter, image, output_path)
-    # return obj_json
 
 ###############################################################################
-#
+# 
 #
 #
 ###############################################################################
@@ -962,9 +1051,14 @@ def SplitImageByIdx(opt_Debug, image, split):
 
 
 ###############################################################################
+# Splits an image into two halves
 #
-#
-#
+# Parameters:
+# image (np array): numpy array representation of image
+
+# Return:
+# tiles (list): numpy array represenation of image tiles
+# offsets (list): image tile offsets relative to (0,0)
 ###############################################################################
 def SplitImageByHalf(image):
     image_width, image_height = image.size
@@ -979,6 +1073,16 @@ def SplitImageByHalf(image):
     offsets.append([int(image_width // 2), 0])
     return tiles, offsets
 
+###############################################################################
+# Splits an image into 8 parts, in a 4 x 2 manner.
+#
+# Parameters:
+# image (np array): numpy array representation of image
+#
+# Returns:
+# tiles (list): numpy array representation of image tiles
+# offsets (list): image tile offsets relative to the (0, 0)
+###############################################################################
 def SplitImageByEight(image):
     image_width, image_height = image.size
     image = np.array(image)
@@ -1006,14 +1110,30 @@ def SplitImageByEight(image):
     return tiles, offsets
 
 ###############################################################################
+# checks to see if an exact copy of an array already exist
 #
-#
-#
+# Parameters:
+# myarr (np array): target numpy array
+# list_arrays (list): a list of already existing numpy arrays
 ###############################################################################
-
 def arreq_in_list(myarr, list_arrays):
     return next((True for elem in list_arrays if np.array_equal(elem, myarr)), False)
 
+
+###############################################################################
+# Splits an image according to the split ratio. Adds strides to the edges of the
+# image tiles that is half the sliding window width and height.
+# 
+# Parameters:
+# image(numpy array): numpy array representation of the image
+# split(int): split ratio 
+# winW (int): width of the sliding window
+# winH (int): height of the sliding window
+
+# Returns:
+# tiles (list): numpy array representations of image tiles
+# offsets (list): offsets of each image tile relative to the first image tile
+###############################################################################
 def SplitImageWithStride(image, split, winW, winH):
 
     image_width, image_height = image.size
@@ -1047,29 +1167,6 @@ def SplitImageWithStride(image, split, winW, winH):
     y2 = 0
 
     image = np.array(image)
-
-    # for i in range(split):
-    #     x2 = 0
-    #     x1 = 0
-    #     y1 = y1 + (i * tile_size_y) - (i * tile_stride_y)
-    #     y2 = y1 + tile_size_y
-
-    #     for j in range(split):
-    #         ss = []
-    #         x1 = x1 + (j * tile_size_x) - (j * tile_stride_x)
-    #         x2 = x1 + tile_size_x
-
-    #         if image_width <= tile_size_x and image_height <= tile_size_y:
-    #             print(" >>>   1111   >>> ")
-    #             print("X1: " + str(0))
-    #             print("X2: " + str(image_width - 1))
-    #             print("Y1: " + str(0))
-    #             print("Y2: " + str(image_height - 1))
-    #             if image not in tiles:
-    #                 tiles.append(image)
-    #             if not arreq_in_list([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)], offsets):
-    #                 offsets.append([j * (tile_size_x - tile_stride_x), i * (tile_size_y - tile_stride_y)])
-
 
     if image_width <= tile_size_x and image_height <= tile_size_y :
         print(" >>>   1111   >>> ")
@@ -1157,7 +1254,6 @@ def SplitImageWithStride(image, split, winW, winH):
             tiles.append(image)
             offsets.append([0, 0])
 
-
     elif (image_width > tile_size_x) and (image_height > tile_size_y):
         print(" >>>   444   >>> ")
         if (rem_w > (tile_size_x / 2) and rem_h > (tile_size_y / 2)) or (dev_w > 1 and dev_h > 1):
@@ -1212,187 +1308,12 @@ def SplitImageWithStride(image, split, winW, winH):
                         offsets.append([int(j * (tile_size_x - tile_stride_x)), int(i * (tile_size_y - tile_stride_y))])
 
     return tiles, offsets
-    
-
-# def SplitImageWithStride(image, split, winW, winH):
-    
-#     image_width, image_height = image.size
-#     split = int (math.pow(2,(split-1)))
-
-#     tile_size_x = image_width // split
-#     tile_size_y = image_height // split
-
-# 	
-#     tile_stride_x = int(winW / 2)
-#     tile_stride_y = int(winH / 2)
-
-    
-#     tiles = []
-#     offsets = []
-#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-#     print("Image width: " + str(image_width))
-#     print("Image height: " + str(image_height))
-#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-#     print("Tile width: " + str(tile_size_x))
-#     print("Tike height: " + str(tile_size_y))
-#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-#     print("X_stride: " + str(tile_stride_x))
-#     print("Y_stride: " + str(tile_stride_y))
-#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    
-#     rem_w = image_width%tile_size_x
-#     rem_h = image_height%tile_size_y
-
-#     dev_w = image_width/tile_size_x
-#     dev_h = image_height/tile_size_y
         
-#     image = np.array(image)
-    
-#     if image_width <= tile_size_x and image_height <= tile_size_y :
-#         print(" >>>   1111   >>> ")
-#         print("X1: " + str(0))
-#         print("X2: " + str(image_width-1))            
-#         print("Y1: " + str(0))
-#         print("Y2: " + str(image_height-1))   
-#         tiles.append(image)
-#         offsets.append([0, 0])
-#         # return  tiles
-    
-#     elif (image_width <= tile_size_x ) and image_height > tile_size_y :
-#         print(" >>>   222   >>> ")    
-#         if rem_h >= (tile_size_y/2) or dev_h>1 :
-#             print(" >>>   222    AA  >>> ")    
-            
-#             split_h = (image_height//tile_size_y)+math.ceil(image_height%tile_size_y/tile_size_y)
-
-#             y1 = 0
-#             y2 = 0
-#             for i in range(split_h):
-#                 ss = []
-#                 if i == 0 : 
-#                    y1 = 0 
-#                 else:
-#                    y1 = y1 + (tile_size_y) - (tile_stride_y)
-                   
-#                 y2 = y1 + tile_size_y
-#                 if y2 >= image_height or y2 >=(image_height-(tile_size_y/2)) : 
-#                    y2 = image_height -1
-                
-#                 print("X1: " + str(0))
-#                 print("X2: " + str(image_width-1))            
-#                 print("Y1: " + str(y1))
-#                 print("Y2: " + str(y2))
-#                 ss = image[y1:y2, 0:(image_width-1), :]                    
-#                 # ss = tiles.append(image)
-#                 tiles.append(ss)
-#                 offsets.append([y1, 0])
-    
-#             #return tiles
-#         else:
-#             print(" >>>   222    BB  >>> ")    
-#             print("X1: " + str(0))
-#             print("X2: " + str(image_width-1))            
-#             print("Y1: " + str(0))
-#             print("Y2: " + str(image_height-1))      
-#             tiles.append(image)
-#             offsets.append([0, 0])
-#             #return tiles
-        
-#     elif (image_width > tile_size_x) and ( image_height <= tile_size_y ) :
-#         print("g >>>   333   >>> ")      
-#         if rem_w >= (tile_size_x / 2) or dev_w>1:
-#             print(" >>>   333    AA  >>> ")    
-            
-#             split_w = (image_width//tile_size_x)+math.ceil(image_width%tile_size_x/tile_size_x)
-            
-#             x1 = 0
-#             x2 = 0
-#             for i in range(split_w):
-              
-#                 ss = [] 
-# #                
-#                 if i == 0 : 
-#                    x1 = 0 
-#                 else:
-#                    x1 = x1 + (tile_size_x) - (tile_stride_x)
-                                      
-#                 x2 = x1 + tile_size_x
-#                 if x2 >= image_width or x2 >=(image_width-(tile_size_x/2)): 
-#                    x2 = image_width -1                          
-#                 print("X1: " + str(x1))
-#                 print("X2: " + str(x2))            
-#                 print("Y1: " + str(0))
-#                 print("Y2: " + str(image_height-1))         
-#                 ss = image[0:(image_height-1), x1:x2, :]
-#                 tiles.append(ss)
-#                 offsets.append([0, x1])
-#                 # offsets.append([j * (window_width - x_stride), i * (window_height - y_stride)])
-    
-#             #return tiles
-#         else:
-#             print(" >>>   333     BB  >>> ")    
-#             print("X1: " + str(0))
-#             print("X2: " + str(image_width-1))            
-#             print("Y1: " + str(0))
-#             print("Y2: " + str(image_height-1))      
-
-#             tiles.append(image)
-#             offsets.append([0, 0])
-
-#             #return tiles
-    
-#     elif (image_width > tile_size_x ) and (image_height > tile_size_x ):
-#         print(" >>>   444   >>> ")      
-#         if (rem_w > (tile_size_x / 2) and rem_h > (tile_size_y / 2)) or ( dev_w>1 and dev_h>1):
-#             print(" >>>   444  AAA  >>> ")  
-#             y1 = 0
-#             y2 = 0
-            
-#             split_h = (image_height//tile_size_y)+math.ceil(image_height%tile_size_y/tile_size_y)
-#             split_w =  (image_width//tile_size_x)+math.ceil(image_width%tile_size_x/tile_size_x)
-
-#             for i in range(split_h):
-#                 print(" >>>   444  BBB >>> ")  
-#                 x2 = 0
-#                 x1 = 0
-                
-#                 if i == 0 : 
-#                    y1 = 0 
-#                 else:
-#                    y1 = y1 + (tile_size_y) - (tile_stride_y)
-
-#                 y2 = y1 + tile_size_y
-#                 if y2 >= image_height  or y2 >=(image_height-(tile_size_y/2))  : 
-#                    y2 = image_height -1 
-# 				   
-#                 for j in range(split_w):
-#                     print(" >>>   444  CCC >>> ")  
-#                     ss = []
-                    
-#                     if j == 0  : 
-#                        x1 = 0 
-#                     else:
-#                        x1 = x1 + (tile_size_x) - (tile_stride_x)
-
-#                     x2 = x1 + tile_size_x
-#                     if x2 >= image_width  or x2 >=(image_width-(tile_size_x/2)) : 
-#                        x2 = image_width -1 
-                       
-#                     print("X1: " + str(x1))
-#                     print("X2: " + str(x2))            
-#                     print("Y1: " + str(y1))
-#                     print("Y2: " + str(y2))                              
-#                     ss = image[y1:y2, x1:x2, :]
-# 					
-#                     tiles.append(ss)
-#                     offsets.append([y1, x1])
-    
-#     return tiles, offsets
-    
 ###############################################################################
-#
-#
-#
+# Save image tiles split from a larger image
+# 
+# Parameters:
+# images (list): a list of numpy array representation of image tiles
 ###############################################################################
 def SaveSplitImages(images):
     image_idx = 0
@@ -1401,7 +1322,19 @@ def SaveSplitImages(images):
         im.save(os.path.join(opt_output, os.path.splitext(os.path.basename(opt.image))[0] + "_" + str(image_idx) + ".jpg"))
         image_idx += 1
 
-def CombineDetections(progress_Counter, image_width, image_height, output_path, detection_paths, tile_offsets):
+###############################################################################
+# Combines the detection json of each image tile into one detection json.
+# 
+# Parameters:
+# progress_Counter (int): progress bar count from 0 to 100
+# output_path (str): path to write the combined detections
+# detection_paths (list): a list of paths containing the detections for each image tile
+# tile_offsets (list): a list containing the coordinates of tile offsets from a reference tile
+        
+# Returns:
+# returns the string representation of the path of the combined detections
+###############################################################################
+def CombineDetections(progress_Counter, output_path, detection_paths, tile_offsets):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
     # detection_jsons = [detection_jsons[1]]
     combined_json = {}
@@ -1426,11 +1359,23 @@ def CombineDetections(progress_Counter, image_width, image_height, output_path, 
     combined_json = SortDetections(opt.Debug, output_path, combined_json)
 
     for iou in iou_thres:
-        filter_bounding_boxes_optimized(opt.Debug, progress_Counter, image_width, image_height, combined_json, iou)
+        filter_bounding_boxes_optimized(opt.Debug, progress_Counter, combined_json, iou)
 
     with open(os.path.join(output_path, "detection.json"), 'w') as out_fp:
         json.dump(combined_json, out_fp, indent=4)
+        
+    return os.path.join(output_path, "detection.json")
 
+
+###############################################################################
+# Draws out the combined detections onto the original image
+# 
+# Parameters:
+# output_path (str): progress bar count from 0 to 100
+# detection_path (str): path of the combined detections
+# image_path (str): path of original image
+        
+###############################################################################
 def DrawCombineDetections(output_path, detection_path, image_path):
     output_image_path = os.path.join(output_path, os.path.basename(image_path))
     shutil.copyfile(image_path, output_image_path)
@@ -1446,11 +1391,12 @@ def DrawCombineDetections(output_path, detection_path, image_path):
     draw_bounding_boxes(detection, image, output_image_path)
 
 ###############################################################################
-#
-#
-#
+# Accepts an image. If image is tiff format, calculate its projections.
+# Splits the image into tiles, based on a split ratio.
+# Import either PyTorch or Tensorflow according to input weights.
+# Starts threads equal to the amount of tiles, and apply threaded sliding windows onto each of the tiles.
+# Combine the tile results, and generate a .shp file based on it.
 ###############################################################################
-
 if __name__ == "__main__":
     main_start = time.time()
 
@@ -1477,6 +1423,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_cpu", type=int, default=0, help="number of cpu threads to use during batch generation")
     parser.add_argument("--x_stride", type=int, default=200, help="width stride of the sliding window in pixels")
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
+    parser.add_argument("--gen_csv", type=bool, default=False, help="whether to generate csv for final result")
 
     opt = parser.parse_args()
 
@@ -1511,7 +1458,7 @@ if __name__ == "__main__":
 
     if opt_full_map:
         t_Table.append(['Input Image Type ', 'Full MAP '])
-        xOrigin, yOrigin, pixelWidth, pixelHeight, proj_type, jpg_file, im, cord = ConvertFUllmap(temp_Folder, opt_image, down_scale)
+        xOrigin, yOrigin, pixelWidth, pixelHeight, proj_type, jpg_file, im, cord = ConvertFullmap(temp_Folder, opt_image, down_scale)
         opt_image = jpg_file
         tiff_path, jpg_extension = os.path.splitext(opt_image)
     else:
@@ -1541,11 +1488,7 @@ if __name__ == "__main__":
     if opt_Debug:
         print("Image width: " + str(image_width) + " Image Height: " + str(image_height))
 
-    sub_images, tile_offsets = SplitImageWithStride(im, opt.split, opt_x_stride, opt_y_stride)
-    # sub_images, tile_offsets = SplitImageByEight(im)
-    # SaveSplitImages(sub_images)
-
-    pool = mp.Pool(processes=opt.split)
+    sub_images, tile_offsets = SplitImageWithStride(im, opt.split, opt.window_size, opt.window_size)
 
     for image in sub_images:
         x_offset = 0
@@ -1588,13 +1531,12 @@ if __name__ == "__main__":
             output_paths.append(output_path)
             os.mkdir(output_path)
             
-            child_thread = mp.Process(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                            opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord))
+            child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                                            opt_weights_path, output_path, opt_x_stride, opt_y_stride))
             child_thread.start()
             threads.append(child_thread)
 
         elif GetWeightsType(opt_weights_path) == "tensorflow":
-            
             import warnings
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore",category=FutureWarning)
@@ -1612,19 +1554,6 @@ if __name__ == "__main__":
                 opt_x_stride = int(winW / 2)
                 opt_y_stride = int(winH / 2)
 
-                with tf.gfile.FastGFile(opt_weights_path, 'rb') as f:
-                    graph_def = tf.GraphDef()
-                    graph_def.ParseFromString(f.read())
-
-                config = tf.ConfigProto(
-                    gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
-                )
-                config.gpu_options.allow_growth = True
-
-                sess = tf.Session(config=config)
-                sess.graph.as_default()
-                tf.import_graph_def(graph_def, name='')
-
                 progress_Counter = 30
                 printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
@@ -1632,52 +1561,79 @@ if __name__ == "__main__":
                 image_idx += 1
                 output_paths.append(output_path)
                 os.mkdir(output_path)
-
-                result = pool.starmap(sliding_windows, [(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, sess)])
                 
-                # child_thread = threading.Thread(target=sliding_windows, args=(
-                # opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                # opt_weights_path, output_path, opt_x_stride, opt_y_stride, x_coord, y_coord, sess))
-                # child_thread.start()
-                # threads.append(child_thread)
-
+                child_thread = threading.Thread(target=sliding_windows, args=(
+                opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                opt_weights_path, output_path, opt_x_stride, opt_y_stride))
+                child_thread.start()
+                threads.append(child_thread)
         else:
             print("Could not find a valid trained weights for detection. Please supply a valid weights")
             sys.exit()
 
-    # for thread in threads:
-    #     thread.join()
+    for thread in threads:
+        thread.join()
 
-    # progress_Counter = 75
-    # printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+    progress_Counter = 75
+    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
-    # combined_path = os.path.join(opt.output, "combined_detections")
-    # os.mkdir(os.path.abspath(combined_path))
+    combined_path = os.path.join(opt.output, "combined_detections")
+    os.mkdir(os.path.abspath(combined_path))
 
-    # # CombineDetections(progress_Counter, image_width, image_height, combined_path, output_paths, tile_offsets)
-    # # combine_start = time.time()
-    # # DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
-    # # combine_end = time.time()
-
-    # runtime_end = time.time()
-
+    combine_start = time.time()
+    combined_json_path = CombineDetections(progress_Counter, combined_path, output_paths, tile_offsets)
     # if opt_Debug:
-    #     print("Total runtime: " + str(runtime_end - runtime_start))
+    #     DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
+    combine_end = time.time()
 
-    # main_end = time.time()
-    # t_Table.append(['      Total Time  Elapsed     ', (main_end - main_start)])
-    # progress_Counter = 100
-    # printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-    # time.sleep(0.1)
+    with open(combined_json_path) as fp:
+        input_json = json.load(fp)
+    
+    ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
 
-    # t = Texttable(180)
-    # # t.set_cols_width([80,80])
-    # t.add_rows(t_Table)
+    # if opt_full_map :
+    #   # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
+    #   ExportJsonToCSV_start = time.time()
+    #   gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, image_width, image_height, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
+    #   tiff_path, jpg_extension = os.path.splitext(opt_image)
+    #   ExportShpProj (tiff_path, gps_Fields, proj_type)
+    #   t_Table.append(['Shp project files  ', tiff_path])           
+    #   # os.remove((tiff_path+'.jpg'))
+    #   # os.remove((tiff_path+'.jpg'))
+    #   if gen_Csv :
+    #       # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
+    #       ExportJsonToCSV_end = time.time()
+    #       t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])    
 
-    # with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
-    #     summary.write(t.draw())
-    # summary.close()
+    # else:
+    #     if gen_Csv :    
+    #       ExportJsonToCSV_start = time.time()
+    #       # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOT TIFFF >>>>>>>>>>>>>>>>")
+    #       ExportJsonToCSV(input_json, output_path)
+    #       ExportJsonToCSV_end = time.time()
+    #       t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
 
-    # print(colored(t.draw(), 'yellow', attrs=['bold']))
-    # time.sleep(5)
+    runtime_end = time.time()
+
+    # Display run stats
+
+    if opt_Debug:
+        print("Total runtime: " + str(runtime_end - runtime_start))
+
+    main_end = time.time()
+    t_Table.append(['Total Time Elapsed ', (main_end - main_start)])
+    progress_Counter = 100
+    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+    time.sleep(0.1)
+
+    t = Texttable(180)
+    # t.set_cols_width([80,80])
+    t.add_rows(t_Table)
+
+    with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
+        summary.write(t.draw())
+        
+    summary.close()
+
+    print(colored(t.draw(), 'yellow', attrs=['bold']))
+    time.sleep(5)

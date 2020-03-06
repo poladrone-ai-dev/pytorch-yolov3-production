@@ -1,6 +1,5 @@
 # import the necessary packages
 import imutils
-import pyimagesearch.global_var as global_var
 
 # smaller scale yields more layers, larger scales yields fewer layers
 def pyramid(image, scale=2, minSize=(1250, 1250)):
@@ -28,11 +27,11 @@ def sliding_window(image, x_stepSize, y_stepSize, windowSize, x_coord, y_coord):
 	# slide a window across the image
 	y1 = 0
 	y2 = 0
-	
+
 	for y in range(0, image.shape[0], y_stepSize):
 	
 		if ((y + (windowSize[1])) > image.shape[0]) :		
-			y1 =(image.shape[0]) - windowSize[1]
+			y1 = (image.shape[0]) - windowSize[1]
 			y2 = image.shape[0]
 		else :
 			y1 = y
