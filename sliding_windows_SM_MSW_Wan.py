@@ -555,10 +555,8 @@ def ExportShpProj(tiff_path, gps_Fields, proj_type):
 
     spatialReference = osgeo.osr.SpatialReference()
     spatialReference.ImportFromEPSG(int(EPSG_code))
-    print(spatialReference)
     driver = osgeo.ogr.GetDriverByName('ESRI Shapefile')
     shapeData = driver.CreateDataSource(export_shp)
-    print(shapeData)
     layer = shapeData.CreateLayer('layer', spatialReference, osgeo.ogr.wkbPoint)
     layer_defn = layer.GetLayerDefn()
     index = 0
@@ -1460,7 +1458,7 @@ if __name__ == "__main__":
     if opt_full_map:
         t_Table.append(['Input Image Type ', 'Full MAP '])
         xOrigin, yOrigin, pixelWidth, pixelHeight, proj_type, jpg_file, im, cord = ConvertFullmap(temp_Folder, opt_image, down_scale)
-        opt_image = jpg_file
+        opt_image = opt.image
         tiff_path, jpg_extension = os.path.splitext(opt_image)
     else:
         t_Table.append(['Input Image Type ', ' JPG File '])
@@ -1592,27 +1590,29 @@ if __name__ == "__main__":
     
     ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
 
-    # if opt_full_map :
-    #   # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
-    #   ExportJsonToCSV_start = time.time()
-    #   gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, image_width, image_height, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
-    #   tiff_path, jpg_extension = os.path.splitext(opt_image)
-    #   ExportShpProj (tiff_path, gps_Fields, proj_type)
-    #   t_Table.append(['Shp project files  ', tiff_path])           
-    #   # os.remove((tiff_path+'.jpg'))
-    #   # os.remove((tiff_path+'.jpg'))
-    #   if gen_Csv :
-    #       # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
-    #       ExportJsonToCSV_end = time.time()
-    #       t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])    
+    gen_Csv = True
 
-    # else:
-    #     if gen_Csv :    
-    #       ExportJsonToCSV_start = time.time()
-    #       # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOT TIFFF >>>>>>>>>>>>>>>>")
-    #       ExportJsonToCSV(input_json, output_path)
-    #       ExportJsonToCSV_end = time.time()
-    #       t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
+    if opt_full_map :
+      # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
+      ExportJsonToCSV_start = time.time()
+      gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
+      # tiff_path, jpg_extension = os.path.splitext(opt_image)
+      ExportShpProj(combined_path, gps_Fields, proj_type)
+      t_Table.append(['Shp project files  ', tiff_path])           
+      # os.remove((tiff_path+'.jpg'))
+      # os.remove((tiff_path+'.jpg'))
+      if gen_Csv :
+          # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
+          ExportJsonToCSV_end = time.time()
+          t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])    
+
+    else:
+        if gen_Csv :    
+          ExportJsonToCSV_start = time.time()
+          # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOT TIFFF >>>>>>>>>>>>>>>>")
+          ExportJsonToCSV(input_json, output_path)
+          ExportJsonToCSV_end = time.time()
+          t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
 
     runtime_end = time.time()
 
