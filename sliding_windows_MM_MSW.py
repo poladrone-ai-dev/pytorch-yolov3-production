@@ -1,4 +1,5 @@
 from __future__ import division
+
 from models import *
 from utils.utils import *
 from utils.datasets import *
@@ -13,6 +14,7 @@ import time
 import datetime
 import argparse
 import json
+import numpy
 import cv2
 import torch
 import shutil
@@ -679,7 +681,7 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json
     
 # Pre-Cond: bounding boxes coordinates in output_json are within the dimensions of the image
 ###############################################################################
-def draw_bounding_boxes(output_json, image, output_path):
+def draw_bounding_boxes(output_json, image, output_path, color_dict=None):
     draw_bounding_boxes_start = time.time()
 
     for box in output_json:
@@ -692,11 +694,17 @@ def draw_bounding_boxes(output_json, image, output_path):
         height = output_json[box]["height"]
         cls_pred = output_json[box]["cls_pred"]
         conf = output_json[box]["conf"]
-        color = (255, 0, 0)
 
-        cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-        cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
+        if color_dict is not None:
+            color = color_dict[output_json[box]["model"]]
+        else:
+            color = (255, 0, 0)
+    
+       #  image = image.astype(np.float32)
+        #cv2.rectangl
+        #cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)))
+        #cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
+                   # cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
     io.imsave(output_path, image)
     draw_bounding_boxes_end = time.time()
@@ -761,7 +769,7 @@ def IsBackgroundMostlyBlack(window, winW, winH):
 # (int) length of the detection json
 # input_json(dict): detection json (before filter)
 ###############################################################################
-def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
+def GenerateDetections(opt_Debug, progress_Counter, image, output_path, color_dict=None):
     threads = []
 
     if os.path.isfile(os.path.join(output_path, 'detection.json')):
@@ -773,7 +781,7 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
         image_before_filter = copy.deepcopy(image)
         before_filter_thread = threading.Thread(target=draw_bounding_boxes,
                                                 args=[input_json, image_before_filter,
-                                                        os.path.join(output_path,os.path.basename(output_path) + "_detection_before_filter.jpeg")])
+                                                        os.path.join(output_path,os.path.basename(output_path) + "_detection_before_filter.jpeg"), color_dict])
 
         before_filter_thread.start()
         threads.append(before_filter_thread)
@@ -799,7 +807,7 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path):
         image_detect = copy.deepcopy(image)
         draw_box_start = time.time()
         box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image_detect,
-                                                                        os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg")])
+                                                                        os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), color_dict])
         box_thread.start()
         threads.append(box_thread)
         draw_box_end = time.time()
@@ -938,7 +946,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
             
             if GetWeightsType(opt_weights_path) == "yolo" or GetWeightsType(opt_weights_path) == "pytorch":
-                detections = detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window_image, model)
+                detections = detect_image(opt_window_size / 2, opt_conf_thres, opt_nms_thres, window_image, model)
 
             if GetWeightsType(opt_weights_path) == "tensorflow":
                 detections = detect_image_tensorflow(opt_window_size, opt_conf_thres, opt_nms_thres, window, tf_session)
@@ -1332,23 +1340,32 @@ def SaveSplitImages(images):
 # Returns:
 # returns the string representation of the path of the combined detections
 ###############################################################################
-def CombineDetections(progress_Counter, output_path, detection_paths, tile_offsets):
+def CombineDetections(progress_Counter, output_path, detection_paths, tile_offsets, image_idx):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
-    # detection_jsons = [detection_jsons[1]]
     combined_json = {}
     box_idx = 0
     detection_json_index = 0
 
-    for detection_json in detection_jsons:
-        with open(detection_json, 'r') as fp:
+    image_idx_array = []
+    append_count = int(len(detection_jsons) / (image_idx + 1))
+
+    for idx in range(0, image_idx + 1):
+        for times in range(0, append_count):
+            image_idx_array.append(idx)
+
+    print(image_idx_array)
+
+    for i in range(0, len(detection_jsons)):
+    # for detection_json in detection_jsons:
+        with open(detection_jsons[i], 'r') as fp:
             detections = json.load(fp)
 
         for box in detections:
             combined_json["box" + str(box_idx)] = detections[box]
-            combined_json["box" + str(box_idx)]["x1"] += tile_offsets[detection_json_index][0]
-            combined_json["box" + str(box_idx)]["y1"] += tile_offsets[detection_json_index][1]
-            combined_json["box" + str(box_idx)]["x2"] += tile_offsets[detection_json_index][0]
-            combined_json["box" + str(box_idx)]["y2"] += tile_offsets[detection_json_index][1]
+            combined_json["box" + str(box_idx)]["x1"] += tile_offsets[image_idx_array[i]][0]
+            combined_json["box" + str(box_idx)]["y1"] += tile_offsets[image_idx_array[i]][1]
+            combined_json["box" + str(box_idx)]["x2"] += tile_offsets[image_idx_array[i]][0]
+            combined_json["box" + str(box_idx)]["y2"] += tile_offsets[image_idx_array[i]][1]
             box_idx += 1
 
         detection_json_index += 1
@@ -1364,7 +1381,6 @@ def CombineDetections(progress_Counter, output_path, detection_paths, tile_offse
         
     return os.path.join(output_path, "detection.json")
 
-
 ###############################################################################
 # Draws out the combined detections onto the original image
 # 
@@ -1373,7 +1389,7 @@ def CombineDetections(progress_Counter, output_path, detection_paths, tile_offse
 # detection_path (str): path of the combined detections
 # image_path (str): path of original image
 ###############################################################################
-def DrawCombineDetections(output_path, detection_path, image_path):
+def DrawCombineDetections(output_path, detection_path, image_path, color_dict=None):
     output_image_path = os.path.join(output_path, os.path.basename(image_path))
     shutil.copyfile(image_path, output_image_path)
 
@@ -1385,7 +1401,7 @@ def DrawCombineDetections(output_path, detection_path, image_path):
     else:
         image = imread(os.path.abspath(image_path), plugin='pil')
 
-    draw_bounding_boxes(detection, image, output_image_path)
+    draw_bounding_boxes(detection, image, output_image_path, color_dict)
 
 
 ###############################################################################
@@ -1474,9 +1490,9 @@ if __name__ == "__main__":
 
     opt_output = opt.output
 
-    if os.path.exists(opt_output):
-        shutil.rmtree(opt_output)
-    os.mkdir(opt_output)
+    # if os.path.exists(opt_output):
+    #     shutil.rmtree(opt_output)
+    # os.mkdir(opt_output)
 
     progress_Counter = 5
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
@@ -1502,7 +1518,7 @@ if __name__ == "__main__":
     t_Table.append(['Input Image Size ', im_size])
 
     classes = load_classes(opt_class_path)
-    image_idx = 0
+    image_idx = -1
     threads = []
     output_paths = []
     color_dict = {}
@@ -1519,159 +1535,161 @@ if __name__ == "__main__":
     weights, configs = ReadConfig(opt.weights_cfg)
 
     for image in sub_images:
+        image_idx += 1
         for weight in weights:
             x_offset = 0
             y_offset = 0
             x_coord = 0
             y_coord = -1
-    
-            if os.path.isdir(os.path.join(opt_output, os.path.splitext(os.path.basename(opt_image))[0] + "_" + str(image_idx)
-                                       + "_" + os.path.splitext(os.path.basename(weight))[0])):
-                image_idx += 1
-    
+
             color_dict[weight] = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
             output_path = os.path.join(opt_output, os.path.splitext(os.path.basename(opt_image))[0] + "_" + str(image_idx)
                                        + "_" + os.path.splitext(os.path.basename(weight))[0])
+
             if output_path not in output_paths:
                 output_paths.append(output_path)
-    
-            if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
-                from torch.utils.data import DataLoader
-                from torchvision import datasets
-                from torch.autograd import Variable
-    
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                
-                for config in configs:
-                    if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
-                        config_file = config
-                
-                model = Darknet(config_file, img_size=opt_img_size).to(device)
-    
-                if weight.endswith("weights"):
-                    print("Loaded the full weights with network architecture.")
-                    model.load_darknet_weights(weight)
-                else:
-                    print("Loaded only the trained weights.")
-                    model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
-    
-                if opt_Debug:
-                    print("PyTorch model detected.")
-                    print("Weights: " + weight + ".")
-                    print("Config: " + config_file + ".")
-    
-                model.eval()
-                Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    
-                [winW, winH] = [opt_window_size, opt_window_size]
-                opt_x_stride = int(winW / 2)
-                opt_y_stride = int(winH / 2)
-    
-                progress_Counter = 30
-                printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-                os.mkdir(output_path)
-                
-                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                                weight, output_path, opt_x_stride, opt_y_stride))
-                child_thread.start()
-                threads.append(child_thread)
-    
-            elif GetWeightsType(weight) == "tensorflow":
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore",category=FutureWarning)
-                    
-                    import tensorflow as tf
-    
-                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-                    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-    
-                    if opt_Debug:
-                        print("Tensorflow weights detected.")
-                        print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
-    
-                    [winW, winH] = [opt_window_size, opt_window_size]
-                    opt_x_stride = int(winW / 2)
-                    opt_y_stride = int(winH / 2)
-    
-                    progress_Counter = 30
-                    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-    
-                    os.mkdir(output_path)                
-                    child_thread = threading.Thread(target=sliding_windows, args=(
-                    opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                    weight, output_path, opt_x_stride, opt_y_stride))
-                    child_thread.start()
-                    threads.append(child_thread)
-            else:
-                print("Could not find a valid trained weights for detection. Please supply a valid weights")
-                sys.exit()
+
+            # if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
+            #     from torch.utils.data import DataLoader
+            #     from torchvision import datasets
+            #     from torch.autograd import Variable
+            #
+            #     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+            #
+            #     for config in configs:
+            #         if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
+            #             config_file = config
+            #
+            #     model = Darknet(config_file, img_size=opt_img_size).to(device)
+            #
+            #     if weight.endswith("weights"):
+            #         print("Loaded the full weights with network architecture.")
+            #         model.load_darknet_weights(weight)
+            #     else:
+            #         print("Loaded only the trained weights.")
+            #         model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
+            #
+            #     if opt_Debug:
+            #         print("PyTorch model detected.")
+            #         print("Weights: " + weight + ".")
+            #         print("Config: " + config_file + ".")
+            #
+            #     model.eval()
+            #     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+            #
+            #     [winW, winH] = [opt_window_size, opt_window_size]
+            #     opt_x_stride = int(winW / 2)
+            #     opt_y_stride = int(winH / 2)
+            #
+            #     progress_Counter = 30
+            #     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            #     os.mkdir(output_path)
+            #
+            #     child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #                                     weight, output_path, opt_x_stride, opt_y_stride))
+            #     child_thread.start()
+            #     threads.append(child_thread)
+            #
+            # elif GetWeightsType(weight) == "tensorflow":
+            #     import warnings
+            #     with warnings.catch_warnings():
+            #         warnings.filterwarnings("ignore",category=FutureWarning)
+            #
+            #         import tensorflow as tf
+            #
+            #         CUDA_VISIBLE_DEVICES = "0"
+            #
+            #         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+            #         tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+            #
+            #         if opt_Debug:
+            #             print("Tensorflow weights detected.")
+            #             print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
+            #
+            #         [winW, winH] = [opt_window_size, opt_window_size]
+            #         opt_x_stride = int(winW / 2)
+            #         opt_y_stride = int(winH / 2)
+            #
+            #         progress_Counter = 30
+            #         printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            #
+            #         os.mkdir(output_path)
+            #         child_thread = threading.Thread(target=sliding_windows, args=(
+            #         opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #         weight, output_path, opt_x_stride, opt_y_stride))
+            #         child_thread.start()
+            #         threads.append(child_thread)
+            # else:
+            #     print("Could not find a valid trained weights for detection. Please supply a valid weights")
+            #     sys.exit()
 
     for thread in threads:
         thread.join()
 
-    # progress_Counter = 75
-    # printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+    print(output_paths)
 
-    # combined_path = os.path.join(opt.output, "combined_detections")
+    progress_Counter = 75
+    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+
+    combined_path = os.path.join(opt.output, "combined_detections")
     # os.mkdir(os.path.abspath(combined_path))
 
-    # combine_start = time.time()
-    # combined_json_path = CombineDetections(progress_Counter, combined_path, output_paths, tile_offsets)
-    # # if opt_Debug:
-    # #     DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image)
-    # combine_end = time.time()
+    combine_start = time.time()
+    combined_json_path = CombineDetections(progress_Counter, combined_path, output_paths, tile_offsets, image_idx)
+    if opt.Debug:
+        DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image, color_dict)
+    combine_end = time.time()
 
-    # with open(combined_json_path) as fp:
-    #     input_json = json.load(fp)
+    with open(combined_json_path) as fp:
+        input_json = json.load(fp)
     
-    # ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
+    ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
 
-    # gen_Csv = True
+    gen_Csv = True
 
-    # if opt_full_map :
-    #   # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
-    #   ExportJsonToCSV_start = time.time()
-    #   gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
-    #   # tiff_path, jpg_extension = os.path.splitext(opt_image)
-    #   ExportShpProj(combined_path, gps_Fields, proj_type)
-    #   t_Table.append(['Shp project files  ', tiff_path])           
-    #   # os.remove((tiff_path+'.jpg'))
-    #   # os.remove((tiff_path+'.jpg'))
-    #   if gen_Csv :
-    #       # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
-    #       ExportJsonToCSV_end = time.time()
-    #       t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])    
+    if opt_full_map :
+      # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
+      ExportJsonToCSV_start = time.time()
+      gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
+      # tiff_path, jpg_extension = os.path.splitext(opt_image)
+      ExportShpProj(combined_path, gps_Fields, proj_type)
+      t_Table.append(['Shp project files  ', tiff_path])
+      # os.remove((tiff_path+'.jpg'))
+      # os.remove((tiff_path+'.jpg'))
+      if gen_Csv :
+          # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
+          ExportJsonToCSV_end = time.time()
+          t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
 
-    # else:
-    #     if gen_Csv :    
-    #       ExportJsonToCSV_start = time.time()
-    #       # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOT TIFFF >>>>>>>>>>>>>>>>")
-    #       ExportJsonToCSV(input_json, output_path)
-    #       ExportJsonToCSV_end = time.time()
-    #       t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
+    else:
+        if gen_Csv :
+          ExportJsonToCSV_start = time.time()
+          # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOT TIFFF >>>>>>>>>>>>>>>>")
+          ExportJsonToCSV(input_json, output_path)
+          ExportJsonToCSV_end = time.time()
+          t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
 
-    # runtime_end = time.time()
+    runtime_end = time.time()
 
-    # # Display run stats
+    # Display run stats
 
-    # if opt_Debug:
-    #     print("Total runtime: " + str(runtime_end - runtime_start))
+    if opt_Debug:
+        print("Total runtime: " + str(runtime_end - runtime_start))
 
-    # main_end = time.time()
-    # t_Table.append(['Total Time Elapsed ', (main_end - main_start)])
-    # progress_Counter = 100
-    # printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-    # time.sleep(0.1)
+    main_end = time.time()
+    t_Table.append(['Total Time Elapsed ', (main_end - main_start)])
+    progress_Counter = 100
+    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+    time.sleep(0.1)
 
-    # t = Texttable(180)
-    # # t.set_cols_width([80,80])
-    # t.add_rows(t_Table)
+    t = Texttable(180)
+    # t.set_cols_width([80,80])
+    t.add_rows(t_Table)
 
-    # with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
-    #     summary.write(t.draw())
+    with open(os.path.join(opt.output, "combined_detections", "Summary.txt"), 'a+') as summary:
+        summary.write(t.draw())
         
-    # summary.close()
+    summary.close()
 
-    # print(colored(t.draw(), 'yellow', attrs=['bold']))
-    # time.sleep(5)
+    print(colored(t.draw(), 'yellow', attrs=['bold']))
+    time.sleep(5)
