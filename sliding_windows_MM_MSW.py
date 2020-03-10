@@ -14,7 +14,7 @@ import time
 import datetime
 import argparse
 import json
-import numpy
+import numpy as np
 import cv2
 import torch
 import shutil
@@ -700,12 +700,12 @@ def draw_bounding_boxes(output_json, image, output_path, color_dict=None):
         else:
             color = (255, 0, 0)
     
-       #  image = image.astype(np.float32)
-        #cv2.rectangl
-        #cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)))
-        #cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
-                   # cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
-
+        image = np.asarray(image)
+        
+        cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+        cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
+            
     io.imsave(output_path, image)
     draw_bounding_boxes_end = time.time()
     # t_Table.append(['Drawing Results -- Boxes  ', (draw_bounding_boxes_end - draw_bounding_boxes_start) ])
@@ -1399,8 +1399,9 @@ def DrawCombineDetections(output_path, detection_path, image_path, color_dict=No
     if opt.full_map:
         image = imread(os.path.abspath(image_path), plugin='tifffile')
     else:
-        image = imread(os.path.abspath(image_path), plugin='pil')
-
+        # image = imread(os.path.abspath(image_path), plugin='pil')
+        image = Image.open(os.path.abspath(image_path))
+    
     draw_bounding_boxes(detection, image, output_image_path, color_dict)
 
 
@@ -1490,9 +1491,9 @@ if __name__ == "__main__":
 
     opt_output = opt.output
 
-    # if os.path.exists(opt_output):
-    #     shutil.rmtree(opt_output)
-    # os.mkdir(opt_output)
+    if os.path.exists(opt_output):
+        shutil.rmtree(opt_output)
+    os.mkdir(opt_output)
 
     progress_Counter = 5
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
@@ -1549,90 +1550,88 @@ if __name__ == "__main__":
             if output_path not in output_paths:
                 output_paths.append(output_path)
 
-            # if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
-            #     from torch.utils.data import DataLoader
-            #     from torchvision import datasets
-            #     from torch.autograd import Variable
-            #
-            #     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-            #
-            #     for config in configs:
-            #         if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
-            #             config_file = config
-            #
-            #     model = Darknet(config_file, img_size=opt_img_size).to(device)
-            #
-            #     if weight.endswith("weights"):
-            #         print("Loaded the full weights with network architecture.")
-            #         model.load_darknet_weights(weight)
-            #     else:
-            #         print("Loaded only the trained weights.")
-            #         model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
-            #
-            #     if opt_Debug:
-            #         print("PyTorch model detected.")
-            #         print("Weights: " + weight + ".")
-            #         print("Config: " + config_file + ".")
-            #
-            #     model.eval()
-            #     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-            #
-            #     [winW, winH] = [opt_window_size, opt_window_size]
-            #     opt_x_stride = int(winW / 2)
-            #     opt_y_stride = int(winH / 2)
-            #
-            #     progress_Counter = 30
-            #     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-            #     os.mkdir(output_path)
-            #
-            #     child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-            #                                     weight, output_path, opt_x_stride, opt_y_stride))
-            #     child_thread.start()
-            #     threads.append(child_thread)
-            #
-            # elif GetWeightsType(weight) == "tensorflow":
-            #     import warnings
-            #     with warnings.catch_warnings():
-            #         warnings.filterwarnings("ignore",category=FutureWarning)
-            #
-            #         import tensorflow as tf
-            #
-            #         CUDA_VISIBLE_DEVICES = "0"
-            #
-            #         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-            #         tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-            #
-            #         if opt_Debug:
-            #             print("Tensorflow weights detected.")
-            #             print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
-            #
-            #         [winW, winH] = [opt_window_size, opt_window_size]
-            #         opt_x_stride = int(winW / 2)
-            #         opt_y_stride = int(winH / 2)
-            #
-            #         progress_Counter = 30
-            #         printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-            #
-            #         os.mkdir(output_path)
-            #         child_thread = threading.Thread(target=sliding_windows, args=(
-            #         opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-            #         weight, output_path, opt_x_stride, opt_y_stride))
-            #         child_thread.start()
-            #         threads.append(child_thread)
-            # else:
-            #     print("Could not find a valid trained weights for detection. Please supply a valid weights")
-            #     sys.exit()
+            if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
+                from torch.utils.data import DataLoader
+                from torchvision import datasets
+                from torch.autograd import Variable
+            
+                device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+            
+                for config in configs:
+                    if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
+                        config_file = config
+            
+                model = Darknet(config_file, img_size=opt_img_size).to(device)
+            
+                if weight.endswith("weights"):
+                    print("Loaded the full weights with network architecture.")
+                    model.load_darknet_weights(weight)
+                else:
+                    print("Loaded only the trained weights.")
+                    model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
+            
+                if opt_Debug:
+                    print("PyTorch model detected.")
+                    print("Weights: " + weight + ".")
+                    print("Config: " + config_file + ".")
+            
+                model.eval()
+                Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+            
+                [winW, winH] = [opt_window_size, opt_window_size]
+                opt_x_stride = int(winW / 2)
+                opt_y_stride = int(winH / 2)
+            
+                progress_Counter = 30
+                printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+                os.mkdir(output_path)
+            
+                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                                                weight, output_path, opt_x_stride, opt_y_stride))
+                child_thread.start()
+                threads.append(child_thread)
+            
+            elif GetWeightsType(weight) == "tensorflow":
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore",category=FutureWarning)
+            
+                    import tensorflow as tf
+            
+                    CUDA_VISIBLE_DEVICES = "0"
+            
+                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+                    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+            
+                    if opt_Debug:
+                        print("Tensorflow weights detected.")
+                        print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
+            
+                    [winW, winH] = [opt_window_size, opt_window_size]
+                    opt_x_stride = int(winW / 2)
+                    opt_y_stride = int(winH / 2)
+            
+                    progress_Counter = 30
+                    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            
+                    os.mkdir(output_path)
+                    child_thread = threading.Thread(target=sliding_windows, args=(
+                    opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                    weight, output_path, opt_x_stride, opt_y_stride))
+                    child_thread.start()
+                    threads.append(child_thread)
+            else:
+                print("Could not find a valid trained weights for detection. Please supply a valid weights")
+                sys.exit()
 
     for thread in threads:
         thread.join()
-
-    print(output_paths)
 
     progress_Counter = 75
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
     combined_path = os.path.join(opt.output, "combined_detections")
-    # os.mkdir(os.path.abspath(combined_path))
+    os.mkdir(os.path.abspath(combined_path))
 
     combine_start = time.time()
     combined_json_path = CombineDetections(progress_Counter, combined_path, output_paths, tile_offsets, image_idx)
@@ -1643,7 +1642,8 @@ if __name__ == "__main__":
     with open(combined_json_path) as fp:
         input_json = json.load(fp)
     
-    ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
+    if opt_full_map:
+        ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
 
     gen_Csv = True
 
@@ -1651,11 +1651,8 @@ if __name__ == "__main__":
       # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
       ExportJsonToCSV_start = time.time()
       gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
-      # tiff_path, jpg_extension = os.path.splitext(opt_image)
       ExportShpProj(combined_path, gps_Fields, proj_type)
       t_Table.append(['Shp project files  ', tiff_path])
-      # os.remove((tiff_path+'.jpg'))
-      # os.remove((tiff_path+'.jpg'))
       if gen_Csv :
           # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
           ExportJsonToCSV_end = time.time()
