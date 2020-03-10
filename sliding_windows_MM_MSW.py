@@ -590,6 +590,26 @@ def ExportShpProj(tiff_path, gps_Fields, proj_type):
 
     t_Table.append(['Export Results to Shp Proj ', (export_shp_proj_end - export_shp_proj_start)])
 
+
+###############################################################################
+# Checks two boxes to see if one is a subset of another
+# 
+# Parameters:
+# boxA (dict): bounding box values for boxA
+# boxB (dict): bounding box values for boxB
+    
+# Returns:
+# bool to indicate if one box is within another
+###############################################################################
+def isSubset(boxA, boxB):
+
+    if boxA["x1"] > boxB["x1"] and boxA["y1"] > boxB["y1"] and boxA["x2"] < boxB["x2"] and boxA["y2"] < boxB["y2"]:
+        return True
+    elif boxB["x1"] > boxA["x1"] and boxB["y1"] > boxA["y1"] and boxB["x2"] < boxA["x2"] and boxB["y2"] < boxA["y2"]:
+        return True
+
+    return False
+
 ###############################################################################
 # Filters out overlapping bounding boxes, taking only the bounding box with the highest confidence value.
 # 
@@ -601,6 +621,8 @@ def ExportShpProj(tiff_path, gps_Fields, proj_type):
     
 # Returns:
 # detections_json (dict): filtered detection json
+    
+# Precondition: bounding boxes are already sorted in ascending x1 values
 ###############################################################################
 def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json, iou_thres):
     bounding_boxes_filter_start = time.time()
@@ -626,7 +648,15 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json
         neighbor_range = 101
         for neighbor_idx in range(1, neighbor_range):
             if idx + neighbor_idx < len(detections_json):
-                neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
+                if opt_Debug:
+                    if isSubset(detections_json[detections_json_list[idx]], detections_json[detections_json_list[idx + neighbor_idx]]):
+                        if detections_json[detections_json_list[idx]]["conf"] < detections_json[detections_json_list[idx + neighbor_idx]]["conf"]:
+                            neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
+                        else:
+                            neighbor_boxes.append(detections_json_list[idx])
+                else:
+                    neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
+               
 
         for box in neighbor_boxes:
             boxA = detections_json_list[idx]
@@ -1353,10 +1383,7 @@ def CombineDetections(progress_Counter, output_path, detection_paths, tile_offse
         for times in range(0, append_count):
             image_idx_array.append(idx)
 
-    print(image_idx_array)
-
     for i in range(0, len(detection_jsons)):
-    # for detection_json in detection_jsons:
         with open(detection_jsons[i], 'r') as fp:
             detections = json.load(fp)
 
@@ -1370,7 +1397,8 @@ def CombineDetections(progress_Counter, output_path, detection_paths, tile_offse
 
         detection_json_index += 1
 
-    iou_thres = [0.5]
+    iou_thres = [0.5, 0.4, 0.3, 0.2, 0.1]
+    
     combined_json = SortDetections(opt.Debug, output_path, combined_json)
 
     for iou in iou_thres:
@@ -1466,7 +1494,6 @@ if __name__ == "__main__":
     parser.add_argument("--x_stride", type=int, default=200, help="width stride of the sliding window in pixels")
     parser.add_argument("--y_stride", type=int, default=200, help="height stride of the sliding window in pixels")
     parser.add_argument("--gen_csv", type=bool, default=False, help="whether to generate csv for final result")
-    
 
     opt = parser.parse_args()
 
@@ -1491,9 +1518,9 @@ if __name__ == "__main__":
 
     opt_output = opt.output
 
-    if os.path.exists(opt_output):
-        shutil.rmtree(opt_output)
-    os.mkdir(opt_output)
+    # if os.path.exists(opt_output):
+    #     shutil.rmtree(opt_output)
+    # os.mkdir(opt_output)
 
     progress_Counter = 5
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
@@ -1550,79 +1577,79 @@ if __name__ == "__main__":
             if output_path not in output_paths:
                 output_paths.append(output_path)
 
-            if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
-                from torch.utils.data import DataLoader
-                from torchvision import datasets
-                from torch.autograd import Variable
+            # if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
+            #     from torch.utils.data import DataLoader
+            #     from torchvision import datasets
+            #     from torch.autograd import Variable
             
-                device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+            #     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
             
-                for config in configs:
-                    if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
-                        config_file = config
+            #     for config in configs:
+            #         if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
+            #             config_file = config
             
-                model = Darknet(config_file, img_size=opt_img_size).to(device)
+            #     model = Darknet(config_file, img_size=opt_img_size).to(device)
             
-                if weight.endswith("weights"):
-                    print("Loaded the full weights with network architecture.")
-                    model.load_darknet_weights(weight)
-                else:
-                    print("Loaded only the trained weights.")
-                    model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
+            #     if weight.endswith("weights"):
+            #         print("Loaded the full weights with network architecture.")
+            #         model.load_darknet_weights(weight)
+            #     else:
+            #         print("Loaded only the trained weights.")
+            #         model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
             
-                if opt_Debug:
-                    print("PyTorch model detected.")
-                    print("Weights: " + weight + ".")
-                    print("Config: " + config_file + ".")
+            #     if opt_Debug:
+            #         print("PyTorch model detected.")
+            #         print("Weights: " + weight + ".")
+            #         print("Config: " + config_file + ".")
             
-                model.eval()
-                Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+            #     model.eval()
+            #     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
             
-                [winW, winH] = [opt_window_size, opt_window_size]
-                opt_x_stride = int(winW / 2)
-                opt_y_stride = int(winH / 2)
+            #     [winW, winH] = [opt_window_size, opt_window_size]
+            #     opt_x_stride = int(winW / 2)
+            #     opt_y_stride = int(winH / 2)
             
-                progress_Counter = 30
-                printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-                os.mkdir(output_path)
+            #     progress_Counter = 30
+            #     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            #     os.mkdir(output_path)
             
-                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                                weight, output_path, opt_x_stride, opt_y_stride))
-                child_thread.start()
-                threads.append(child_thread)
+            #     child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #                                     weight, output_path, opt_x_stride, opt_y_stride))
+            #     child_thread.start()
+            #     threads.append(child_thread)
             
-            elif GetWeightsType(weight) == "tensorflow":
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore",category=FutureWarning)
+            # elif GetWeightsType(weight) == "tensorflow":
+            #     import warnings
+            #     with warnings.catch_warnings():
+            #         warnings.filterwarnings("ignore",category=FutureWarning)
             
-                    import tensorflow as tf
+            #         import tensorflow as tf
             
-                    CUDA_VISIBLE_DEVICES = "0"
+            #         CUDA_VISIBLE_DEVICES = "0"
             
-                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-                    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+            #         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+            #         tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
             
-                    if opt_Debug:
-                        print("Tensorflow weights detected.")
-                        print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
+            #         if opt_Debug:
+            #             print("Tensorflow weights detected.")
+            #             print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
             
-                    [winW, winH] = [opt_window_size, opt_window_size]
-                    opt_x_stride = int(winW / 2)
-                    opt_y_stride = int(winH / 2)
+            #         [winW, winH] = [opt_window_size, opt_window_size]
+            #         opt_x_stride = int(winW / 2)
+            #         opt_y_stride = int(winH / 2)
             
-                    progress_Counter = 30
-                    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            #         progress_Counter = 30
+            #         printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
             
-                    os.mkdir(output_path)
-                    child_thread = threading.Thread(target=sliding_windows, args=(
-                    opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                    weight, output_path, opt_x_stride, opt_y_stride))
-                    child_thread.start()
-                    threads.append(child_thread)
-            else:
-                print("Could not find a valid trained weights for detection. Please supply a valid weights")
-                sys.exit()
+            #         os.mkdir(output_path)
+            #         child_thread = threading.Thread(target=sliding_windows, args=(
+            #         opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #         weight, output_path, opt_x_stride, opt_y_stride))
+            #         child_thread.start()
+            #         threads.append(child_thread)
+            # else:
+            #     print("Could not find a valid trained weights for detection. Please supply a valid weights")
+            #     sys.exit()
 
     for thread in threads:
         thread.join()
@@ -1631,7 +1658,7 @@ if __name__ == "__main__":
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
     combined_path = os.path.join(opt.output, "combined_detections")
-    os.mkdir(os.path.abspath(combined_path))
+    # os.mkdir(os.path.abspath(combined_path))
 
     combine_start = time.time()
     combined_json_path = CombineDetections(progress_Counter, combined_path, output_paths, tile_offsets, image_idx)
@@ -1641,27 +1668,23 @@ if __name__ == "__main__":
 
     with open(combined_json_path) as fp:
         input_json = json.load(fp)
-    
-    if opt_full_map:
-        ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
 
     gen_Csv = True
 
     if opt_full_map :
       # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> YESSS TIFFF >>>>>>>>>>>>>>>>")
       ExportJsonToCSV_start = time.time()
-      gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
+      gps_Fields = ExportJsonToCSV2(True, input_json, os.path.join(opt_output, "combined_detections"), xOrigin, yOrigin, pixelWidth, pixelHeight, down_scale)
+      # gps_Fields = ExportJsonToCSV2(opt.gen_csv, input_json, opt_output, xOrigin, yOrigin , pixelWidth, pixelHeight, down_scale)
       ExportShpProj(combined_path, gps_Fields, proj_type)
       t_Table.append(['Shp project files  ', tiff_path])
-      if gen_Csv :
-          # print("*** INFO *** :  Your Shp project files placed here : "+tiff_path)
+      if gen_Csv:
           ExportJsonToCSV_end = time.time()
           t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
 
     else:
         if gen_Csv :
           ExportJsonToCSV_start = time.time()
-          # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOT TIFFF >>>>>>>>>>>>>>>>")
           ExportJsonToCSV(input_json, output_path)
           ExportJsonToCSV_end = time.time()
           t_Table.append([' Convert Results to CSV  ', (ExportJsonToCSV_end - ExportJsonToCSV_start) ])
