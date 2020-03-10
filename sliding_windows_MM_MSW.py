@@ -646,17 +646,17 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json
 
         neighbor_boxes = []
         neighbor_range = 101
+        
         for neighbor_idx in range(1, neighbor_range):
             if idx + neighbor_idx < len(detections_json):
-                if opt_Debug:
-                    if isSubset(detections_json[detections_json_list[idx]], detections_json[detections_json_list[idx + neighbor_idx]]):
-                        if detections_json[detections_json_list[idx]]["conf"] < detections_json[detections_json_list[idx + neighbor_idx]]["conf"]:
-                            neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
-                        else:
-                            neighbor_boxes.append(detections_json_list[idx])
+                if isSubset(detections_json[detections_json_list[idx]], detections_json[detections_json_list[idx + neighbor_idx]]):
+                    if detections_json[detections_json_list[idx]]["conf"] < detections_json[detections_json_list[idx + neighbor_idx]]["conf"]:
+                        neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
+                    else:
+                        neighbor_boxes.append(detections_json_list[idx])
                 else:
                     neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
-               
+                 
 
         for box in neighbor_boxes:
             boxA = detections_json_list[idx]
@@ -711,7 +711,7 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json
     
 # Pre-Cond: bounding boxes coordinates in output_json are within the dimensions of the image
 ###############################################################################
-def draw_bounding_boxes(output_json, image, output_path, color_dict=None):
+def draw_bounding_boxes(opt_Debug, output_json, image, output_path, color_dict=None):
     draw_bounding_boxes_start = time.time()
 
     for box in output_json:
@@ -725,8 +725,11 @@ def draw_bounding_boxes(output_json, image, output_path, color_dict=None):
         cls_pred = output_json[box]["cls_pred"]
         conf = output_json[box]["conf"]
 
-        if color_dict is not None:
-            color = color_dict[output_json[box]["model"]]
+        if opt_Debug:
+            if color_dict is not None:
+                color = color_dict[output_json[box]["model"]]
+            else:
+                color = (255, 0, 0)
         else:
             color = (255, 0, 0)
     
@@ -810,7 +813,7 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path, color_di
 
         image_before_filter = copy.deepcopy(image)
         before_filter_thread = threading.Thread(target=draw_bounding_boxes,
-                                                args=[input_json, image_before_filter,
+                                                args=[opt_Debug, input_json, image_before_filter,
                                                         os.path.join(output_path,os.path.basename(output_path) + "_detection_before_filter.jpeg"), color_dict])
 
         before_filter_thread.start()
@@ -836,7 +839,7 @@ def GenerateDetections(opt_Debug, progress_Counter, image, output_path, color_di
 
         image_detect = copy.deepcopy(image)
         draw_box_start = time.time()
-        box_thread = threading.Thread(target=draw_bounding_boxes, args=[input_json, image_detect,
+        box_thread = threading.Thread(target=draw_bounding_boxes, args=[opt_Debug, input_json, image_detect,
                                                                         os.path.join(output_path, os.path.basename(output_path) + "_detection.jpeg"), color_dict])
         box_thread.start()
         threads.append(box_thread)
@@ -1370,7 +1373,7 @@ def SaveSplitImages(images):
 # Returns:
 # returns the string representation of the path of the combined detections
 ###############################################################################
-def CombineDetections(progress_Counter, output_path, detection_paths, tile_offsets, image_idx):
+def CombineDetections(opt_Debug, progress_Counter, output_path, detection_paths, tile_offsets, image_idx):
     detection_jsons = [os.path.join(path, "detection_filtered.json") for path in detection_paths]
     combined_json = {}
     box_idx = 0
@@ -1399,10 +1402,10 @@ def CombineDetections(progress_Counter, output_path, detection_paths, tile_offse
 
     iou_thres = [0.5, 0.4, 0.3, 0.2, 0.1]
     
-    combined_json = SortDetections(opt.Debug, output_path, combined_json)
+    combined_json = SortDetections(opt_Debug, output_path, combined_json)
 
     for iou in iou_thres:
-        filter_bounding_boxes_optimized(opt.Debug, progress_Counter, combined_json, iou)
+        filter_bounding_boxes_optimized(opt_Debug, progress_Counter, combined_json, iou)
 
     with open(os.path.join(output_path, "detection.json"), 'w') as out_fp:
         json.dump(combined_json, out_fp, indent=4)
@@ -1430,7 +1433,7 @@ def DrawCombineDetections(output_path, detection_path, image_path, color_dict=No
         # image = imread(os.path.abspath(image_path), plugin='pil')
         image = Image.open(os.path.abspath(image_path))
     
-    draw_bounding_boxes(detection, image, output_image_path, color_dict)
+    draw_bounding_boxes(opt_Debug, detection, image, output_image_path, color_dict)
 
 
 ###############################################################################
@@ -1518,9 +1521,9 @@ if __name__ == "__main__":
 
     opt_output = opt.output
 
-    # if os.path.exists(opt_output):
-    #     shutil.rmtree(opt_output)
-    # os.mkdir(opt_output)
+    if os.path.exists(opt_output):
+        shutil.rmtree(opt_output)
+    os.mkdir(opt_output)
 
     progress_Counter = 5
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
@@ -1577,79 +1580,79 @@ if __name__ == "__main__":
             if output_path not in output_paths:
                 output_paths.append(output_path)
 
-            # if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
-            #     from torch.utils.data import DataLoader
-            #     from torchvision import datasets
-            #     from torch.autograd import Variable
+            if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
+                from torch.utils.data import DataLoader
+                from torchvision import datasets
+                from torch.autograd import Variable
             
-            #     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+                device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
             
-            #     for config in configs:
-            #         if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
-            #             config_file = config
+                for config in configs:
+                    if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
+                        config_file = config
             
-            #     model = Darknet(config_file, img_size=opt_img_size).to(device)
+                model = Darknet(config_file, img_size=opt_img_size).to(device)
             
-            #     if weight.endswith("weights"):
-            #         print("Loaded the full weights with network architecture.")
-            #         model.load_darknet_weights(weight)
-            #     else:
-            #         print("Loaded only the trained weights.")
-            #         model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
+                if weight.endswith("weights"):
+                    print("Loaded the full weights with network architecture.")
+                    model.load_darknet_weights(weight)
+                else:
+                    print("Loaded only the trained weights.")
+                    model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
             
-            #     if opt_Debug:
-            #         print("PyTorch model detected.")
-            #         print("Weights: " + weight + ".")
-            #         print("Config: " + config_file + ".")
+                if opt_Debug:
+                    print("PyTorch model detected.")
+                    print("Weights: " + weight + ".")
+                    print("Config: " + config_file + ".")
             
-            #     model.eval()
-            #     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+                model.eval()
+                Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
             
-            #     [winW, winH] = [opt_window_size, opt_window_size]
-            #     opt_x_stride = int(winW / 2)
-            #     opt_y_stride = int(winH / 2)
+                [winW, winH] = [opt_window_size, opt_window_size]
+                opt_x_stride = int(winW / 2)
+                opt_y_stride = int(winH / 2)
             
-            #     progress_Counter = 30
-            #     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-            #     os.mkdir(output_path)
+                progress_Counter = 30
+                printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+                os.mkdir(output_path)
             
-            #     child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-            #                                     weight, output_path, opt_x_stride, opt_y_stride))
-            #     child_thread.start()
-            #     threads.append(child_thread)
+                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                                                weight, output_path, opt_x_stride, opt_y_stride))
+                child_thread.start()
+                threads.append(child_thread)
             
-            # elif GetWeightsType(weight) == "tensorflow":
-            #     import warnings
-            #     with warnings.catch_warnings():
-            #         warnings.filterwarnings("ignore",category=FutureWarning)
+            elif GetWeightsType(weight) == "tensorflow":
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore",category=FutureWarning)
             
-            #         import tensorflow as tf
+                    import tensorflow as tf
             
-            #         CUDA_VISIBLE_DEVICES = "0"
+                    CUDA_VISIBLE_DEVICES = "0"
             
-            #         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-            #         tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+                    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
             
-            #         if opt_Debug:
-            #             print("Tensorflow weights detected.")
-            #             print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
+                    if opt_Debug:
+                        print("Tensorflow weights detected.")
+                        print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
             
-            #         [winW, winH] = [opt_window_size, opt_window_size]
-            #         opt_x_stride = int(winW / 2)
-            #         opt_y_stride = int(winH / 2)
+                    [winW, winH] = [opt_window_size, opt_window_size]
+                    opt_x_stride = int(winW / 2)
+                    opt_y_stride = int(winH / 2)
             
-            #         progress_Counter = 30
-            #         printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+                    progress_Counter = 30
+                    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
             
-            #         os.mkdir(output_path)
-            #         child_thread = threading.Thread(target=sliding_windows, args=(
-            #         opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-            #         weight, output_path, opt_x_stride, opt_y_stride))
-            #         child_thread.start()
-            #         threads.append(child_thread)
-            # else:
-            #     print("Could not find a valid trained weights for detection. Please supply a valid weights")
-            #     sys.exit()
+                    os.mkdir(output_path)
+                    child_thread = threading.Thread(target=sliding_windows, args=(
+                    opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                    weight, output_path, opt_x_stride, opt_y_stride))
+                    child_thread.start()
+                    threads.append(child_thread)
+            else:
+                print("Could not find a valid trained weights for detection. Please supply a valid weights")
+                sys.exit()
 
     for thread in threads:
         thread.join()
@@ -1658,10 +1661,10 @@ if __name__ == "__main__":
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
     combined_path = os.path.join(opt.output, "combined_detections")
-    # os.mkdir(os.path.abspath(combined_path))
+    os.mkdir(os.path.abspath(combined_path))
 
     combine_start = time.time()
-    combined_json_path = CombineDetections(progress_Counter, combined_path, output_paths, tile_offsets, image_idx)
+    combined_json_path = CombineDetections(opt_Debug, progress_Counter, combined_path, output_paths, tile_offsets, image_idx)
     if opt.Debug:
         DrawCombineDetections(combined_path, os.path.join(combined_path, "detection.json"), opt.image, color_dict)
     combine_end = time.time()
