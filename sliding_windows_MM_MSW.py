@@ -896,6 +896,9 @@ def GetWeightsType(weights_path):
 # sess (tf.Session): tensorflow session to run detections
 ###############################################################################
 def InitTFSess(weights_path):
+    
+    # os.environ[CUDA_VISIBLE_DEVICES] = "1"
+    
     with tf.gfile.FastGFile(weights_path, 'rb') as f:
        graph_def = tf.GraphDef()
        graph_def.ParseFromString(f.read())
@@ -1044,9 +1047,9 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
     if opt_Debug:
         fp.close()
 
-    if opt_Debug:
-        with open(os.path.join(output_path, "detection.json"), "w") as img_json:
-            json.dump(output_json, img_json, indent=4)
+   
+    with open(os.path.join(output_path, "detection.json"), "w") as img_json:
+        json.dump(output_json, img_json, indent=4)
 
     obj_no, obj_json = GenerateDetections(opt_Debug, progress_Counter, image, output_path)
 
@@ -1585,7 +1588,8 @@ if __name__ == "__main__":
                 from torchvision import datasets
                 from torch.autograd import Variable
             
-                device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                print("Pytorch device: " + str(device))
             
                 for config in configs:
                     if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
@@ -1628,8 +1632,6 @@ if __name__ == "__main__":
             
                     import tensorflow as tf
             
-                    CUDA_VISIBLE_DEVICES = "0"
-            
                     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
                     tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
             
@@ -1656,6 +1658,8 @@ if __name__ == "__main__":
 
     for thread in threads:
         thread.join()
+
+    print("Thread count: " + str(len(threads)))
 
     progress_Counter = 75
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
