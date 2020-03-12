@@ -897,7 +897,7 @@ def GetWeightsType(weights_path):
 ###############################################################################
 def InitTFSess(weights_path):
     
-    # os.environ[CUDA_VISIBLE_DEVICES] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     
     with tf.gfile.FastGFile(weights_path, 'rb') as f:
        graph_def = tf.GraphDef()
@@ -915,6 +915,8 @@ def InitTFSess(weights_path):
     sess = tf.Session(config=config)
     sess.graph.as_default()
     tf.import_graph_def(graph_def, name='')
+    
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
     
     return sess
 
@@ -982,7 +984,7 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
         if not IsBackgroundMostlyBlack(window, window_width, window_height):
             
             if GetWeightsType(opt_weights_path) == "yolo" or GetWeightsType(opt_weights_path) == "pytorch":
-                detections = detect_image(opt_window_size / 2, opt_conf_thres, opt_nms_thres, window_image, model)
+                detections = detect_image(opt_window_size, opt_conf_thres, opt_nms_thres, window_image, model)
 
             if GetWeightsType(opt_weights_path) == "tensorflow":
                 detections = detect_image_tensorflow(opt_window_size, opt_conf_thres, opt_nms_thres, window, tf_session)
@@ -1048,8 +1050,8 @@ def sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, o
         fp.close()
 
    
-    with open(os.path.join(output_path, "detection.json"), "w") as img_json:
-        json.dump(output_json, img_json, indent=4)
+    with open(os.path.join(output_path, "detection.json"), "w") as output_pt:
+        json.dump(output_json, output_pt, indent=4)
 
     obj_no, obj_json = GenerateDetections(opt_Debug, progress_Counter, image, output_path)
 
@@ -1588,7 +1590,7 @@ if __name__ == "__main__":
                 from torchvision import datasets
                 from torch.autograd import Variable
             
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 print("Pytorch device: " + str(device))
             
                 for config in configs:
@@ -1620,10 +1622,14 @@ if __name__ == "__main__":
                 printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
                 os.mkdir(output_path)
             
-                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                                weight, output_path, opt_x_stride, opt_y_stride))
-                child_thread.start()
-                threads.append(child_thread)
+
+                sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                                                weight, output_path, opt_x_stride, opt_y_stride)
+            
+                # child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                #                                 weight, output_path, opt_x_stride, opt_y_stride))
+                # child_thread.start()
+                # threads.append(child_thread)
             
             elif GetWeightsType(weight) == "tensorflow":
                 import warnings
