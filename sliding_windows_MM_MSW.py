@@ -649,21 +649,21 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json
         
         for neighbor_idx in range(1, neighbor_range):
             if idx + neighbor_idx < len(detections_json):
-                if isSubset(detections_json[detections_json_list[idx]], detections_json[detections_json_list[idx + neighbor_idx]]):
-                    if detections_json[detections_json_list[idx]]["conf"] < detections_json[detections_json_list[idx + neighbor_idx]]["conf"]:
-                        neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
-                    else:
-                        neighbor_boxes.append(detections_json_list[idx])
-                else:
+                # if isSubset(detections_json[detections_json_list[idx]], detections_json[detections_json_list[idx + neighbor_idx]]):
+                    # if detections_json[detections_json_list[idx]]["conf"] < detections_json[detections_json_list[idx + neighbor_idx]]["conf"]:
+                    #     neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
+                    # else:
+                    #     neighbor_boxes.append(detections_json_list[idx])
+                
+                # else:
                     neighbor_boxes.append(detections_json_list[idx + neighbor_idx])
                  
-
         for box in neighbor_boxes:
             boxA = detections_json_list[idx]
             boxB = box
             iou, interArea, boxAArea, boxBArea = calculate_iou(detections_json[boxA], detections_json[boxB])
 
-            if iou > iou_thres:
+            if iou > iou_thres or isSubset(detections_json[boxA], detections_json[boxB]):
                 if detections_json[boxA]["conf"] == detections_json[boxB]["conf"] \
                         and boxA not in same_conf_boxes and boxB not in same_conf_boxes:
                     rand_num = random.randint(1, 2)
@@ -713,7 +713,7 @@ def filter_bounding_boxes_optimized(opt_Debug, progress_Counter, detections_json
 ###############################################################################
 def draw_bounding_boxes(opt_Debug, output_json, image, output_path, color_dict=None):
     draw_bounding_boxes_start = time.time()
-
+    
     for box in output_json:
 
         x1 = output_json[box]["x1"]
@@ -739,7 +739,11 @@ def draw_bounding_boxes(opt_Debug, output_json, image, output_path, color_dict=N
         cv2.putText(image, box + "-" + str(conf), (int(x1), int(y1)), \
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, lineType=cv2.LINE_AA)
             
-    io.imsave(output_path, image)
+    # io.imsave(output_path, image)
+    image = Image.fromarray(image)
+    b,g,r = image.split()
+    image = Image.merge("RGB", (r,g,b))
+    image.save(output_path)
     draw_bounding_boxes_end = time.time()
     # t_Table.append(['Drawing Results -- Boxes  ', (draw_bounding_boxes_end - draw_bounding_boxes_start) ])
 
@@ -897,7 +901,7 @@ def GetWeightsType(weights_path):
 ###############################################################################
 def InitTFSess(weights_path):
     
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     
     with tf.gfile.FastGFile(weights_path, 'rb') as f:
        graph_def = tf.GraphDef()
@@ -916,7 +920,7 @@ def InitTFSess(weights_path):
     sess.graph.as_default()
     tf.import_graph_def(graph_def, name='')
     
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
     
     return sess
 
@@ -1435,11 +1439,10 @@ def DrawCombineDetections(output_path, detection_path, image_path, color_dict=No
     if opt.full_map:
         image = imread(os.path.abspath(image_path), plugin='tifffile')
     else:
-        # image = imread(os.path.abspath(image_path), plugin='pil')
+        #image = imread(os.path.abspath(image_path), plugin='pil')
         image = Image.open(os.path.abspath(image_path))
     
     draw_bounding_boxes(opt_Debug, detection, image, output_image_path, color_dict)
-
 
 ###############################################################################
 # Reads and returns the weights and configuration files.
@@ -1464,7 +1467,6 @@ def ReadConfig(weights_cfg):
             if len(line.split(" ")) > 1:
                 if line.split(" ")[1].replace("\n", "").endswith(".cfg"):
                     configs.append(line.split(" ")[1].replace("\n", ""))
-
     return weights, configs
 
 ###############################################################################
@@ -1590,9 +1592,8 @@ if __name__ == "__main__":
                 from torchvision import datasets
                 from torch.autograd import Variable
             
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                print("Pytorch device: " + str(device))
-            
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
                 for config in configs:
                     if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
                         config_file = config
@@ -1622,7 +1623,6 @@ if __name__ == "__main__":
                 printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
                 os.mkdir(output_path)
             
-
                 sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
                                                 weight, output_path, opt_x_stride, opt_y_stride)
             
@@ -1653,9 +1653,14 @@ if __name__ == "__main__":
                     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
             
                     os.mkdir(output_path)
+                    
+                    # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                    # weight, output_path, opt_x_stride, opt_y_stride)
+                    
                     child_thread = threading.Thread(target=sliding_windows, args=(
                     opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
                     weight, output_path, opt_x_stride, opt_y_stride))
+                    
                     child_thread.start()
                     threads.append(child_thread)
             else:
