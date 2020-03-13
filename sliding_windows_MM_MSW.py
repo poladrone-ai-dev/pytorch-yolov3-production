@@ -741,7 +741,11 @@ def draw_bounding_boxes(opt_Debug, output_json, image, output_path, color_dict=N
             
     # io.imsave(output_path, image)
     image = Image.fromarray(image)
-    b,g,r = image.split()
+    if len(image.split()) == 3:
+        b,g,r = image.split()
+    elif len(image.split()) == 4:
+        b,g,r,a = image.split()
+        
     image = Image.merge("RGB", (r,g,b))
     image.save(output_path)
     draw_bounding_boxes_end = time.time()
@@ -1378,7 +1382,7 @@ def SaveSplitImages(images):
 # output_path (str): path to write the combined detections
 # detection_paths (list): a list of paths containing the detections for each image tile
 # tile_offsets (list): a list containing the coordinates of tile offsets from a reference tile
-        
+#         
 # Returns:
 # returns the string representation of the path of the combined detections
 ###############################################################################
@@ -1409,7 +1413,7 @@ def CombineDetections(opt_Debug, progress_Counter, output_path, detection_paths,
 
         detection_json_index += 1
 
-    iou_thres = [0.5, 0.4, 0.3, 0.2, 0.1]
+    iou_thres = [0.5]
     
     combined_json = SortDetections(opt_Debug, output_path, combined_json)
 
@@ -1449,7 +1453,7 @@ def DrawCombineDetections(output_path, detection_path, image_path, color_dict=No
 # 
 # Parameters:
 # weights_cfg (str): path to file containing weights and config names
-
+# 
 # Returns:
 # weights (list): a list of weight names
 # configs (list): a list of config names
@@ -1623,13 +1627,13 @@ if __name__ == "__main__":
                 printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
                 os.mkdir(output_path)
             
-                sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                                weight, output_path, opt_x_stride, opt_y_stride)
+                # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                #                                 weight, output_path, opt_x_stride, opt_y_stride)
             
-                # child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                #                                 weight, output_path, opt_x_stride, opt_y_stride))
-                # child_thread.start()
-                # threads.append(child_thread)
+                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+                                                weight, output_path, opt_x_stride, opt_y_stride))
+                child_thread.start()
+                threads.append(child_thread)
             
             elif GetWeightsType(weight) == "tensorflow":
                 import warnings
@@ -1651,7 +1655,6 @@ if __name__ == "__main__":
             
                     progress_Counter = 30
                     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-            
                     os.mkdir(output_path)
                     
                     # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,

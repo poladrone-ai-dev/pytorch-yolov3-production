@@ -119,7 +119,11 @@ class YOLOLayer(nn.Module):
         self.noobj_scale = 100
         self.metrics = {}
         self.img_dim = img_dim
-        self.grid_size = 0  # grid size
+        self.grid_size = 0  # grid 
+        self.grid_x = 0
+        self.grid_y = 0
+        self.anchor_w = 0
+        self.anchor_h = 0
 
     def compute_grid_offsets(self, grid_size, cuda=True):
         self.grid_size = grid_size
