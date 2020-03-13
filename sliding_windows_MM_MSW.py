@@ -1532,9 +1532,9 @@ if __name__ == "__main__":
 
     opt_output = opt.output
 
-    if os.path.exists(opt_output):
-        shutil.rmtree(opt_output)
-    os.mkdir(opt_output)
+    # if os.path.exists(opt_output):
+    #     shutil.rmtree(opt_output)
+    # os.mkdir(opt_output)
 
     progress_Counter = 5
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
@@ -1591,84 +1591,84 @@ if __name__ == "__main__":
             if output_path not in output_paths:
                 output_paths.append(output_path)
 
-            if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
-                from torch.utils.data import DataLoader
-                from torchvision import datasets
-                from torch.autograd import Variable
+            # if GetWeightsType(weight) == "yolo" or GetWeightsType(weight) == "pytorch":
+            #     from torch.utils.data import DataLoader
+            #     from torchvision import datasets
+            #     from torch.autograd import Variable
             
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-                for config in configs:
-                    if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
-                        config_file = config
+            #     for config in configs:
+            #         if os.path.splitext(os.path.basename(config))[0] == os.path.splitext(os.path.basename(weight))[0]:
+            #             config_file = config
             
-                model = Darknet(config_file, img_size=opt_img_size).to(device)
+            #     model = Darknet(config_file, img_size=opt_img_size).to(device)
             
-                if weight.endswith("weights"):
-                    print("Loaded the full weights with network architecture.")
-                    model.load_darknet_weights(weight)
-                else:
-                    print("Loaded only the trained weights.")
-                    model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
+            #     if weight.endswith("weights"):
+            #         print("Loaded the full weights with network architecture.")
+            #         model.load_darknet_weights(weight)
+            #     else:
+            #         print("Loaded only the trained weights.")
+            #         model.load_state_dict(torch.load(weight, map_location=torch.device('cpu')))
             
-                if opt_Debug:
-                    print("PyTorch model detected.")
-                    print("Weights: " + weight + ".")
-                    print("Config: " + config_file + ".")
+            #     if opt_Debug:
+            #         print("PyTorch model detected.")
+            #         print("Weights: " + weight + ".")
+            #         print("Config: " + config_file + ".")
             
-                model.eval()
-                Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+            #     model.eval()
+            #     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
             
-                [winW, winH] = [opt_window_size, opt_window_size]
-                opt_x_stride = int(winW / 2)
-                opt_y_stride = int(winH / 2)
+            #     [winW, winH] = [opt_window_size, opt_window_size]
+            #     opt_x_stride = int(winW / 2)
+            #     opt_y_stride = int(winH / 2)
             
-                progress_Counter = 30
-                printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-                os.mkdir(output_path)
+            #     progress_Counter = 30
+            #     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            #     os.mkdir(output_path)
             
-                # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                #                                 weight, output_path, opt_x_stride, opt_y_stride)
+            #     # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #     #                                 weight, output_path, opt_x_stride, opt_y_stride)
             
-                child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                                                weight, output_path, opt_x_stride, opt_y_stride))
-                child_thread.start()
-                threads.append(child_thread)
+            #     child_thread = threading.Thread(target=sliding_windows, args=(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #                                     weight, output_path, opt_x_stride, opt_y_stride))
+            #     child_thread.start()
+            #     threads.append(child_thread)
             
-            elif GetWeightsType(weight) == "tensorflow":
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore",category=FutureWarning)
+            # elif GetWeightsType(weight) == "tensorflow":
+            #     import warnings
+            #     with warnings.catch_warnings():
+            #         warnings.filterwarnings("ignore",category=FutureWarning)
             
-                    import tensorflow as tf
+            #         import tensorflow as tf
             
-                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-                    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+            #         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+            #         tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
             
-                    if opt_Debug:
-                        print("Tensorflow weights detected.")
-                        print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
+            #         if opt_Debug:
+            #             print("Tensorflow weights detected.")
+            #             print("Loaded tensorflow weights: " + os.path.basename(weight) + ".")
             
-                    [winW, winH] = [opt_window_size, opt_window_size]
-                    opt_x_stride = int(winW / 2)
-                    opt_y_stride = int(winH / 2)
+            #         [winW, winH] = [opt_window_size, opt_window_size]
+            #         opt_x_stride = int(winW / 2)
+            #         opt_y_stride = int(winH / 2)
             
-                    progress_Counter = 30
-                    printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
-                    os.mkdir(output_path)
+            #         progress_Counter = 30
+            #         printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
+            #         os.mkdir(output_path)
                     
-                    # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                    # weight, output_path, opt_x_stride, opt_y_stride)
+            #         # sliding_windows(opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #         # weight, output_path, opt_x_stride, opt_y_stride)
                     
-                    child_thread = threading.Thread(target=sliding_windows, args=(
-                    opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
-                    weight, output_path, opt_x_stride, opt_y_stride))
+            #         child_thread = threading.Thread(target=sliding_windows, args=(
+            #         opt_Debug, image, progress_Counter, classes, opt_img_size, opt_window_size, opt_conf_thres, opt_nms_thres,
+            #         weight, output_path, opt_x_stride, opt_y_stride))
                     
-                    child_thread.start()
-                    threads.append(child_thread)
-            else:
-                print("Could not find a valid trained weights for detection. Please supply a valid weights")
-                sys.exit()
+            #         child_thread.start()
+            #         threads.append(child_thread)
+            # else:
+            #     print("Could not find a valid trained weights for detection. Please supply a valid weights")
+            #     sys.exit()
 
     for thread in threads:
         thread.join()
@@ -1679,7 +1679,7 @@ if __name__ == "__main__":
     printProgressBar(progress_Counter, 100, prefix='Progress:', suffix='Complete', length=50)
 
     combined_path = os.path.join(opt.output, "combined_detections")
-    os.mkdir(os.path.abspath(combined_path))
+    #  os.mkdir(os.path.abspath(combined_path))
 
     combine_start = time.time()
     combined_json_path = CombineDetections(opt_Debug, progress_Counter, combined_path, output_paths, tile_offsets, image_idx)
@@ -1717,6 +1717,19 @@ if __name__ == "__main__":
     if opt_Debug:
         print("Total runtime: " + str(runtime_end - runtime_start))
 
+    with open(os.path.join(combined_path, "detection.json"), 'r') as combined_fp:
+        combined_json = json.load(combined_fp)
+        
+    weights_dict = {}
+    for weight in weights:
+        weights_dict[weight] = 0
+
+    for box in combined_json:
+        weights_dict[combined_json[box]["model"]] += 1
+        
+    for weight in weights_dict:
+        t_Table.append([os.path.splitext(os.path.basename(weight))[0] + " count ", weights_dict[weight] ])
+        
     main_end = time.time()
     t_Table.append(['Total Time Elapsed ', (main_end - main_start)])
     progress_Counter = 100
